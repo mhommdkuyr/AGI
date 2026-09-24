@@ -66,12 +66,12 @@ class AgentRuntime:
                     task.status = TaskStatus.WAITING_HUMAN
                     task.handoff_reason = HandoffReason(meta["reason"])
                     task.error = "Human interaction is required before the task can continue."
-                    return self._finish(task, on_update)
+                    return await self._finish(task, on_update)
 
                 if status != "finished":
                     task.status = TaskStatus.FAILED
                     task.error = meta.get("error", "Gemini Computer Use run failed.")
-                    return self._finish(task, on_update)
+                    return await self._finish(task, on_update)
 
                 task.metering_state = "unknown"
                 task.status = TaskStatus.FAILED
@@ -79,7 +79,7 @@ class AgentRuntime:
                     "Gemini interaction usage is not yet exposed to this runtime meter; "
                     "paid execution is stopped until exact usage is captured."
                 )
-                return self._finish(task, on_update)
+                return await self._finish(task, on_update)
 
             history = await self._run_browser_agent(task, choice)
             provider_cost, usage_known = self._extract_cost(history, choice.model)
@@ -117,7 +117,7 @@ class AgentRuntime:
             task.status = TaskStatus.FAILED
             task.error = str(exc)
 
-        return self._finish(task, on_update)
+        return await self._finish(task, on_update)
 
     async def resume(self, task: TaskRecord) -> TaskRecord:
         if task.status != TaskStatus.WAITING_HUMAN:
@@ -156,10 +156,10 @@ class AgentRuntime:
             return task
         return await self.run(task, "auto")
 
-    def _finish(self, task: TaskRecord, on_update):
+    async def _finish(self, task: TaskRecord, on_update):
         task.touch()
         if on_update:
-            return _notify_and_return(on_update, task)
+            await on_update(task)
         return task
 
     async def _run_browser_agent(self, task: TaskRecord, choice: ModelChoice):
