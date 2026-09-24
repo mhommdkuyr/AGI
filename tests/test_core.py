@@ -12,13 +12,14 @@ def test_gemini_cost_estimate():
 
 def test_default_browser_router():
     choice = ModelRouter(Settings()).choose(budget_usd=0.75)
-    assert choice.model == "gemini-3.8-flash"
-    assert choice.provider == "google"
+    assert choice.executor_model == "gemini-3.8-flash"
+    assert choice.planner_model == "gemini-3.1-pro-preview"
 
 
-def test_hard_router_escalates():
+def test_hard_router_adds_planning_pass():
     choice = ModelRouter(Settings()).choose(budget_usd=0.75, complexity="hard")
-    assert choice.model == "claude-sonnet-5"
+    assert choice.executor_model == "gemini-3.8-flash"
+    assert choice.planner_model == "gemini-3.1-pro-preview"
 
 
 def test_auth_detection():
