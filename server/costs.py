@@ -9,11 +9,10 @@ class ModelRate:
     output_per_million: float
 
 
-RATES = {
+RATES: dict[str, ModelRate] = {
     "gemini-3.8-flash": ModelRate(0.75, 3.75),
-    "claude-sonnet-5": ModelRate(2.00, 10.00),
-    "gpt-6-sol": ModelRate(2.00, 10.00),
-    "gpt-6-luna": ModelRate(0.10, 0.50),
+    # Planning rates are kept configurable until the production pricing catalog is
+    # versioned from the provider's current pricing feed.
 }
 
 
@@ -26,5 +25,8 @@ class Usage:
 def estimate_token_cost(model: str, usage: Usage) -> float:
     rate = RATES.get(model)
     if rate is None:
-        raise ValueError(f"No pricing configured for model: {model}")
-    return (usage.input_tokens / 1_000_000) * rate.input_per_million + (usage.output_tokens / 1_000_000) * rate.output_per_million
+        raise ValueError(f"No versioned pricing configured for model: {model}")
+    return (
+        (usage.input_tokens / 1_000_000) * rate.input_per_million
+        + (usage.output_tokens / 1_000_000) * rate.output_per_million
+    )
