@@ -73,19 +73,24 @@ alter table public.subscriptions enable row level security;
 alter table public.usage_ledger enable row level security;
 alter table public.tasks enable row level security;
 
-create policy if not exists tenant_profiles_self on public.tenant_profiles
+drop policy if exists tenant_profiles_self on public.tenant_profiles;
+create policy tenant_profiles_self on public.tenant_profiles
   for select using (auth.uid() = id);
 
-create policy if not exists subscriptions_self on public.subscriptions
+drop policy if exists subscriptions_self on public.subscriptions;
+create policy subscriptions_self on public.subscriptions
   for select using (auth.uid() = user_id);
 
-create policy if not exists usage_self on public.usage_ledger
+drop policy if exists usage_self on public.usage_ledger;
+create policy usage_self on public.usage_ledger
   for select using (auth.uid() = user_id);
 
-create policy if not exists tasks_self on public.tasks
+drop policy if exists tasks_self on public.tasks;
+create policy tasks_self on public.tasks
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
-create policy if not exists plans_public_read on public.plans
+drop policy if exists plans_public_read on public.plans;
+create policy plans_public_read on public.plans
   for select using (active = true);
 
 insert into public.plans (code, name, monthly_price_usd, included_budget_usd, max_concurrent_tasks, max_task_budget_usd)
