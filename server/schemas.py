@@ -14,6 +14,7 @@ class TaskResponse(BaseModel):
     status: TaskStatus
     model: str | None
     spent_usd: float
+    metering_state: str
     reserved_usd: float
     steps: int
     failure_count: int
