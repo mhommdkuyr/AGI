@@ -12,6 +12,7 @@ from .config import settings
 from .domain import TaskRecord, TaskStatus
 from .schemas import HealthResponse, TaskCreate, TaskResponse
 from .store import store
+from .usage import ledger
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
@@ -42,6 +43,7 @@ async def health():
 async def create_task(payload: TaskCreate, background_tasks: BackgroundTasks):
     budget = payload.budget_usd or settings.default_task_budget_usd
     task = TaskRecord.new(user_id="local-dev-user", prompt=payload.prompt, budget_usd=budget)
+    ledger.reserve(task.id, budget)
     task.reserved_usd = budget
     store.create(task)
     background_tasks.add_task(runtime.run, task, payload.complexity)
