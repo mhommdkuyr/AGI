@@ -36,13 +36,18 @@ class AgentRuntime:
             history = await self._run_browser_agent(task, choice)
             task.steps = self._extract_steps(history)
             task.failure_count = self._count_failures(history)
-            task.spent_usd = min(task.budget_usd, self._extract_cost(history, choice.model))
+            provider_cost, usage_known = self._extract_cost(history, choice.model)
+            task.spent_usd = provider_cost
+            task.metering_state = "measured" if usage_known else "unknown"
             final_text = self._extract_result(history)
 
             handoff = classify_handoff(final_text)
             if handoff:
                 raise HumanHandoffRequired(handoff)
-            if looks_like_loop(final_text):
+            if not usage_known:
+                task.status = TaskStatus.FAILED
+                task.error = "Provider usage was not observable; paid execution is stopped rather than treated as free."
+            elif looks_like_loop(final_text):
                 task.status = TaskStatus.FAILED
                 task.error = "The agent reported a loop-like terminal state."
             elif task.spent_usd >= task.budget_usd:
@@ -123,15 +128,15 @@ class AgentRuntime:
             return 0
 
     @staticmethod
-    def _extract_cost(history, model: str) -> float:
+    def _extract_cost(history, model: str) -> tuple[float, bool]:
         raw = getattr(history, "usage", None)
         if raw is None:
-            return 0.0
+            return 0.0, False
         def value(name: str) -> int:
             if isinstance(raw, dict):
                 return int(raw.get(name, 0) or 0)
             return int(getattr(raw, name, 0) or 0)
-        return estimate_token_cost(model, Usage(value("input_tokens"), value("output_tokens")))
+        return estimate_token_cost(model, Usage(value("input_tokens"), value("output_tokens"))), True
 
 
 runtime = AgentRuntime(Settings())
