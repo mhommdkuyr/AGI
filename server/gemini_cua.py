@@ -204,15 +204,15 @@ class GeminiComputerUse:
         return results
 
     @staticmethod
-    def _usage(interaction: Any) -> Usage:
+    def _usage(interaction: Any) -> tuple[Usage, bool]:
         raw = getattr(interaction, "usage", None)
         if raw is None:
-            return Usage()
+            return Usage(), False
         def value(name: str) -> int:
             if isinstance(raw, dict):
                 return int(raw.get(name, 0) or 0)
             return int(getattr(raw, name, 0) or 0)
-        return Usage(value("input_tokens"), value("output_tokens"))
+        return Usage(value("input_tokens"), value("output_tokens")), True
 
     def run(self, task_id: str, prompt: str, max_turns: int = 40, budget_usd: float | None = None) -> tuple[str, dict[str, Any]]:
         from google import genai  # noqa: F401
@@ -237,7 +237,8 @@ class GeminiComputerUse:
                 tools=[self._tool()],
             )
             session.interaction_id = getattr(interaction, "id", None)
-            first_usage = self._usage(interaction)
+            first_usage, first_known = self._usage(interaction)
+            usage_known = first_known
             total_input += first_usage.input_tokens
             total_output += first_usage.output_tokens
 
@@ -247,14 +248,14 @@ class GeminiComputerUse:
                     session.status = "waiting_human"
                     session.handoff_reason = gate
                     self._save_state(session)
-                    return "", {"status": "waiting_human", "reason": gate.value, "turns": turn, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output))}
+                    return "", {"status": "waiting_human", "reason": gate.value, "turns": turn, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output)), "usage_known": usage_known}
 
                 calls = self._calls(interaction)
                 if not calls:
                     text = self._extract_text(interaction)
                     session.status = "finished"
                     self._save_state(session)
-                    return text, {"status": "finished", "turns": turn + 1, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output))}
+                    return text, {"status": "finished", "turns": turn + 1, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output)), "usage_known": usage_known}
 
                 responses = self._execute(session, calls)
                 self._save_state(session)
@@ -265,14 +266,15 @@ class GeminiComputerUse:
                     tools=[self._tool()],
                 )
                 session.interaction_id = getattr(interaction, "id", session.interaction_id)
-                usage = self._usage(interaction)
+                usage, known = self._usage(interaction)
+                usage_known = usage_known and known
                 total_input += usage.input_tokens
                 total_output += usage.output_tokens
                 if budget_usd is not None:
                     cost = estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output))
                     if cost >= budget_usd:
                         session.status = "failed"
-                        return "", {"status": "failed", "error": "computer-use budget exhausted", "turns": turn + 1, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": cost}
+                        return "", {"status": "failed", "error": "computer-use budget exhausted", "turns": turn + 1, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": cost, "usage_known": usage_known}
 
             session.status = "failed"
             return "", {"status": "failed", "error": "maximum computer-use turns reached"}
