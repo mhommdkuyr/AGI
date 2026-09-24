@@ -11,6 +11,7 @@ from .gemini_cua import GeminiComputerUse
 from .guardrails import classify_handoff, looks_like_loop
 from .model_router import ModelChoice, ModelRouter
 from .verifier import verify_terminal
+from .usage import ledger
 
 
 class HumanHandoffRequired(Exception):
@@ -176,6 +177,11 @@ class AgentRuntime:
 
     async def _finish(self, task: TaskRecord, on_update):
         task.touch()
+        if task.status in {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+            try:
+                ledger.settle(task.id, task.spent_usd)
+            except (KeyError, ValueError):
+                pass
         if on_update:
             await on_update(task)
         return task
