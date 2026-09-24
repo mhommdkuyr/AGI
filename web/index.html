@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111827"><link rel="manifest" href="/web/manifest.webmanifest">
+<title>وكيل الويب</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;background:#f3f4f6;color:#111827}body{margin:0}.wrap{max-width:760px;margin:auto;padding:18px}.card{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 18px #00000012}textarea,input,button{width:100%;box-sizing:border-box;font:inherit;padding:12px;border-radius:11px;border:1px solid #d1d5db}textarea{min-height:150px;resize:vertical}button{background:#111827;color:white;border:0;font-weight:700;margin-top:10px}.meta{color:#6b7280;font-size:.9rem}.value{font-weight:700}pre{white-space:pre-wrap;overflow:auto}.warn{background:#fff7ed;padding:10px;border-radius:10px}
+</style></head>
+<body><main class="wrap"><h1>وكيل الويب</h1><p class="meta">واجهة أولية للهاتف لتشغيل مهام الويب ومراقبة حالتها.</p>
+<section class="card"><textarea id="prompt" placeholder="مثال: افتح موقعاً عاماً وابحث عن ثلاث نتائج ثم أعد الروابط."></textarea><input id="budget" type="number" min="0.05" step="0.05" value="0.75" style="margin-top:10px"><button id="run">تشغيل</button></section>
+<section id="card" class="card" hidden><div>الحالة: <span id="status" class="value"></span></div><div id="handoff" class="warn" hidden>يلزم تدخل المستخدم لإتمام التحقق أو تسجيل الدخول.</div><pre id="details"></pre><button id="resume" hidden>متابعة</button></section>
+</main><script src="/web/app.js"></script></body></html>
