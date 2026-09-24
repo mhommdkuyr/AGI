@@ -22,7 +22,7 @@ app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 def to_response(task: TaskRecord) -> TaskResponse:
     return TaskResponse(
         id=str(task.id), status=task.status, model=task.model,
-        spent_usd=round(task.spent_usd, 6), reserved_usd=round(task.reserved_usd, 6),
+        spent_usd=round(task.spent_usd, 6), metering_state=task.metering_state, reserved_usd=round(task.reserved_usd, 6),
         steps=task.steps, failure_count=task.failure_count, result=task.result,
         error=task.error, handoff_reason=task.handoff_reason,
     )
