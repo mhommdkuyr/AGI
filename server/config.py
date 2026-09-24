@@ -10,8 +10,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     primary_model: str = "gemini-3.8-flash"
-    secondary_model: str = "claude-sonnet-5"
-    escalation_model: str = "gpt-6-sol"
+    planner_model: str = "gemini-3.1-pro-preview"
     default_max_steps: int = 40
     default_max_failures: int = 3
     default_task_budget_usd: float = 0.75
