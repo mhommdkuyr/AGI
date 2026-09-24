@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 from .complexity import classify_complexity
 from .config import Settings
 from .costs import Usage, estimate_token_cost
 from .domain import HandoffReason, TaskRecord, TaskStatus
+from .gemini_cua import GeminiComputerUse
 from .guardrails import classify_handoff, looks_like_loop
-from .verifier import verify_terminal
 from .model_router import ModelChoice, ModelRouter
+from .verifier import verify_terminal
 
 
 class HumanHandoffRequired(Exception):
@@ -21,32 +23,76 @@ class AgentRuntime:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.router = ModelRouter(settings)
+        self.gemini_cua = (
+            GeminiComputerUse(settings.google_api_key)
+            if settings.google_api_key
+            else None
+        )
 
     async def run(
         self,
         task: TaskRecord,
-        complexity: str = "normal",
+        complexity: str = "auto",
         on_update: Callable[[TaskRecord], Awaitable[None]] | None = None,
     ) -> TaskRecord:
-        effective_complexity = complexity if complexity in {"normal", "hard", "extreme"} else classify_complexity(task.prompt)
-        choice = self.router.choose(budget_usd=task.budget_usd, complexity=effective_complexity)
+        effective_complexity = (
+            classify_complexity(task.prompt)
+            if complexity == "auto"
+            else complexity
+        )
+        choice = self.router.choose(
+            budget_usd=task.budget_usd,
+            complexity=effective_complexity,
+        )
         task.model = choice.model
         task.status = TaskStatus.RUNNING
         task.touch()
         if on_update:
             await on_update(task)
+
         try:
+            if choice.model == "gemini-3.8-flash":
+                if self.gemini_cua is None:
+                    raise RuntimeError("GOOGLE_API_KEY is required for Gemini Computer Use.")
+                final_text, meta = await asyncio.to_thread(
+                    self.gemini_cua.run,
+                    str(task.id),
+                    task.prompt,
+                    self.settings.default_max_steps,
+                )
+                task.steps = int(meta.get("turns", 0))
+                status = meta.get("status")
+                if status == "waiting_human":
+                    task.status = TaskStatus.WAITING_HUMAN
+                    task.handoff_reason = HandoffReason(meta["reason"])
+                    task.error = "Human interaction is required before the task can continue."
+                    return self._finish(task, on_update)
+
+                if status != "finished":
+                    task.status = TaskStatus.FAILED
+                    task.error = meta.get("error", "Gemini Computer Use run failed.")
+                    return self._finish(task, on_update)
+
+                task.metering_state = "unknown"
+                task.status = TaskStatus.FAILED
+                task.error = (
+                    "Gemini interaction usage is not yet exposed to this runtime meter; "
+                    "paid execution is stopped until exact usage is captured."
+                )
+                return self._finish(task, on_update)
+
             history = await self._run_browser_agent(task, choice)
-            task.steps = self._extract_steps(history)
-            task.failure_count = self._count_failures(history)
             provider_cost, usage_known = self._extract_cost(history, choice.model)
             task.spent_usd = provider_cost
             task.metering_state = "measured" if usage_known else "unknown"
+            task.steps = self._extract_steps(history)
+            task.failure_count = self._count_failures(history)
             final_text = self._extract_result(history)
 
             handoff = classify_handoff(final_text)
             if handoff:
                 raise HumanHandoffRequired(handoff)
+
             verification = verify_terminal(history=history, task_text=task.prompt)
             if not usage_known:
                 task.status = TaskStatus.FAILED
@@ -70,9 +116,50 @@ class AgentRuntime:
         except Exception as exc:  # noqa: BLE001
             task.status = TaskStatus.FAILED
             task.error = str(exc)
+
+        return self._finish(task, on_update)
+
+    async def resume(self, task: TaskRecord) -> TaskRecord:
+        if task.status != TaskStatus.WAITING_HUMAN:
+            return task
+        if self.gemini_cua and task.model == "gemini-3.8-flash":
+            task.status = TaskStatus.RUNNING
+            task.handoff_reason = None
+            task.error = None
+            task.touch()
+            try:
+                text_result, meta = await asyncio.to_thread(
+                    self.gemini_cua.resume,
+                    str(task.id),
+                    task.prompt,
+                    self.settings.default_max_steps,
+                )
+                task.steps += int(meta.get("turns", 0))
+                if meta.get("status") == "finished":
+                    task.metering_state = "unknown"
+                    task.status = TaskStatus.FAILED
+                    task.error = (
+                        "Gemini interaction usage is not yet exposed to this runtime meter; "
+                        "paid execution is stopped until exact usage is captured."
+                    )
+                elif meta.get("status") == "waiting_human":
+                    task.status = TaskStatus.WAITING_HUMAN
+                    task.handoff_reason = HandoffReason(meta["reason"])
+                    task.error = "Human interaction is still required."
+                else:
+                    task.status = TaskStatus.FAILED
+                    task.error = meta.get("error", "Resume failed.")
+            except Exception as exc:  # noqa: BLE001
+                task.status = TaskStatus.FAILED
+                task.error = str(exc)
+            task.touch()
+            return task
+        return await self.run(task, "auto")
+
+    def _finish(self, task: TaskRecord, on_update):
         task.touch()
         if on_update:
-            await on_update(task)
+            return _notify_and_return(on_update, task)
         return task
 
     async def _run_browser_agent(self, task: TaskRecord, choice: ModelChoice):
@@ -108,7 +195,7 @@ class AgentRuntime:
             if not self.settings.anthropic_api_key:
                 raise RuntimeError("ANTHROPIC_API_KEY is required for the selected Anthropic model.")
             from browser_use import ChatAnthropic
-            return ChatAnthropic(model=choice.model, temperature=0.0, api_key=self.settings.anthropic_api_key)
+            return ChatAnthropic(model=choice.model, api_key=self.settings.anthropic_api_key)
         if choice.provider == "openai":
             if not self.settings.openai_api_key:
                 raise RuntimeError("OPENAI_API_KEY is required for the selected OpenAI model.")
@@ -124,14 +211,14 @@ class AgentRuntime:
     def _extract_steps(history) -> int:
         try:
             return int(history.number_of_steps())
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0
 
     @staticmethod
     def _count_failures(history) -> int:
         try:
             return sum(1 for item in history.errors() if item)
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0
 
     @staticmethod
@@ -144,6 +231,11 @@ class AgentRuntime:
                 return int(raw.get(name, 0) or 0)
             return int(getattr(raw, name, 0) or 0)
         return estimate_token_cost(model, Usage(value("input_tokens"), value("output_tokens"))), True
+
+
+async def _notify_and_return(on_update, task):
+    await on_update(task)
+    return task
 
 
 runtime = AgentRuntime(Settings())
