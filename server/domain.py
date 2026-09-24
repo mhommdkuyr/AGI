@@ -35,6 +35,7 @@ class TaskRecord:
     budget_usd: float
     reserved_usd: float = 0.0
     spent_usd: float = 0.0
+    metering_state: str = "unknown"
     model: str | None = None
     steps: int = 0
     failure_count: int = 0
