@@ -59,6 +59,7 @@ class AgentRuntime:
                     str(task.id),
                     task.prompt,
                     self.settings.default_max_steps,
+                    task.budget_usd,
                 )
                 task.steps = int(meta.get("turns", 0))
                 status = meta.get("status")
@@ -68,17 +69,25 @@ class AgentRuntime:
                     task.error = "Human interaction is required before the task can continue."
                     return await self._finish(task, on_update)
 
+                task.spent_usd = float(meta.get("provider_cost_usd", 0.0) or 0.0)
+                task.metering_state = "measured" if meta.get("usage_known") else "unknown"
                 if status != "finished":
                     task.status = TaskStatus.FAILED
                     task.error = meta.get("error", "Gemini Computer Use run failed.")
                     return await self._finish(task, on_update)
 
-                task.metering_state = "unknown"
-                task.status = TaskStatus.FAILED
-                task.error = (
-                    "Gemini interaction usage is not yet exposed to this runtime meter; "
-                    "paid execution is stopped until exact usage is captured."
-                )
+                if task.metering_state != "measured":
+                    task.status = TaskStatus.FAILED
+                    task.error = "Gemini usage was not observable; paid execution is stopped rather than treated as free."
+                elif not final_text.strip():
+                    task.status = TaskStatus.FAILED
+                    task.error = "Gemini completed without final evidence."
+                elif task.spent_usd > task.budget_usd:
+                    task.status = TaskStatus.FAILED
+                    task.error = "Task budget exceeded."
+                else:
+                    task.status = TaskStatus.SUCCEEDED
+                    task.result = final_text
                 return await self._finish(task, on_update)
 
             history = await self._run_browser_agent(task, choice)
@@ -133,15 +142,24 @@ class AgentRuntime:
                     str(task.id),
                     task.prompt,
                     self.settings.default_max_steps,
+                    task.budget_usd,
                 )
                 task.steps += int(meta.get("turns", 0))
+                task.spent_usd = float(meta.get("provider_cost_usd", 0.0) or 0.0)
+                task.metering_state = "measured" if meta.get("usage_known") else "unknown"
                 if meta.get("status") == "finished":
-                    task.metering_state = "unknown"
-                    task.status = TaskStatus.FAILED
-                    task.error = (
-                        "Gemini interaction usage is not yet exposed to this runtime meter; "
-                        "paid execution is stopped until exact usage is captured."
-                    )
+                    if task.metering_state != "measured":
+                        task.status = TaskStatus.FAILED
+                        task.error = "Gemini usage was not observable; paid execution is stopped rather than treated as free."
+                    elif task.spent_usd > task.budget_usd:
+                        task.status = TaskStatus.FAILED
+                        task.error = "Task budget exceeded."
+                    elif not text_result.strip():
+                        task.status = TaskStatus.FAILED
+                        task.error = "Gemini completed without final evidence."
+                    else:
+                        task.status = TaskStatus.SUCCEEDED
+                        task.result = text_result
                 elif meta.get("status") == "waiting_human":
                     task.status = TaskStatus.WAITING_HUMAN
                     task.handoff_reason = HandoffReason(meta["reason"])
