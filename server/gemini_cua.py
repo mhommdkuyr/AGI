@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .costs import Usage, estimate_token_cost
 from .domain import HandoffReason
 
 
@@ -202,7 +203,18 @@ class GeminiComputerUse:
             })
         return results
 
-    def run(self, task_id: str, prompt: str, max_turns: int = 40) -> tuple[str, dict[str, Any]]:
+    @staticmethod
+    def _usage(interaction: Any) -> Usage:
+        raw = getattr(interaction, "usage", None)
+        if raw is None:
+            return Usage()
+        def value(name: str) -> int:
+            if isinstance(raw, dict):
+                return int(raw.get(name, 0) or 0)
+            return int(getattr(raw, name, 0) or 0)
+        return Usage(value("input_tokens"), value("output_tokens"))
+
+    def run(self, task_id: str, prompt: str, max_turns: int = 40, budget_usd: float | None = None) -> tuple[str, dict[str, Any]]:
         from google import genai  # noqa: F401
 
         session = self._get_or_create(task_id)
@@ -210,6 +222,8 @@ class GeminiComputerUse:
             session.status = "running"
             client = self._get_client()
             first = session.page.screenshot(type="png")
+            total_input = 0
+            total_output = 0
             interaction = client.interactions.create(
                 model="gemini-3.8-flash",
                 input=[
@@ -223,6 +237,9 @@ class GeminiComputerUse:
                 tools=[self._tool()],
             )
             session.interaction_id = getattr(interaction, "id", None)
+            first_usage = self._usage(interaction)
+            total_input += first_usage.input_tokens
+            total_output += first_usage.output_tokens
 
             for turn in range(max_turns):
                 gate = self._human_gate(session)
@@ -230,14 +247,14 @@ class GeminiComputerUse:
                     session.status = "waiting_human"
                     session.handoff_reason = gate
                     self._save_state(session)
-                    return "", {"status": "waiting_human", "reason": gate.value, "turns": turn}
+                    return "", {"status": "waiting_human", "reason": gate.value, "turns": turn, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output))}
 
                 calls = self._calls(interaction)
                 if not calls:
                     text = self._extract_text(interaction)
                     session.status = "finished"
                     self._save_state(session)
-                    return text, {"status": "finished", "turns": turn + 1}
+                    return text, {"status": "finished", "turns": turn + 1, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output))}
 
                 responses = self._execute(session, calls)
                 self._save_state(session)
@@ -248,6 +265,14 @@ class GeminiComputerUse:
                     tools=[self._tool()],
                 )
                 session.interaction_id = getattr(interaction, "id", session.interaction_id)
+                usage = self._usage(interaction)
+                total_input += usage.input_tokens
+                total_output += usage.output_tokens
+                if budget_usd is not None:
+                    cost = estimate_token_cost("gemini-3.8-flash", Usage(total_input, total_output))
+                    if cost >= budget_usd:
+                        session.status = "failed"
+                        return "", {"status": "failed", "error": "computer-use budget exhausted", "turns": turn + 1, "input_tokens": total_input, "output_tokens": total_output, "provider_cost_usd": cost}
 
             session.status = "failed"
             return "", {"status": "failed", "error": "maximum computer-use turns reached"}
