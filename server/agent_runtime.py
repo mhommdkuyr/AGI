@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+from .complexity import classify_complexity
 from .config import Settings
 from .costs import Usage, estimate_token_cost
 from .domain import HandoffReason, TaskRecord, TaskStatus
 from .guardrails import classify_handoff, looks_like_loop
+from .verifier import verify_terminal
 from .model_router import ModelChoice, ModelRouter
 
 
@@ -26,7 +28,8 @@ class AgentRuntime:
         complexity: str = "normal",
         on_update: Callable[[TaskRecord], Awaitable[None]] | None = None,
     ) -> TaskRecord:
-        choice = self.router.choose(budget_usd=task.budget_usd, complexity=complexity)
+        effective_complexity = complexity if complexity in {"normal", "hard", "extreme"} else classify_complexity(task.prompt)
+        choice = self.router.choose(budget_usd=task.budget_usd, complexity=effective_complexity)
         task.model = choice.model
         task.status = TaskStatus.RUNNING
         task.touch()
@@ -44,9 +47,13 @@ class AgentRuntime:
             handoff = classify_handoff(final_text)
             if handoff:
                 raise HumanHandoffRequired(handoff)
+            verification = verify_terminal(history=history, task_text=task.prompt)
             if not usage_known:
                 task.status = TaskStatus.FAILED
                 task.error = "Provider usage was not observable; paid execution is stopped rather than treated as free."
+            elif not verification.passed:
+                task.status = TaskStatus.FAILED
+                task.error = f"Verification failed: {verification.reason}"
             elif looks_like_loop(final_text):
                 task.status = TaskStatus.FAILED
                 task.error = "The agent reported a loop-like terminal state."
