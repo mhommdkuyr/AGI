@@ -4,7 +4,7 @@ import base64
 import json
 import re
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,7 @@ class GeminiBrowserSession:
     interaction_id: str | None = None
     status: str = "running"
     handoff_reason: HandoffReason | None = None
-    lock: threading.RLock = threading.RLock()
+    lock: threading.RLock = field(default_factory=threading.RLock)
 
 
 class GeminiComputerUse:
