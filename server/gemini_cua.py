@@ -605,6 +605,42 @@ class GeminiComputerUse:
                 "final_title": session.page.title(),
             }
 
+    def human_input(self, task_id: str, action: dict[str, Any]) -> dict[str, Any]:
+        session = self._get_or_create(task_id)
+        with session.lock:
+            if session.status != "waiting_human":
+                raise RuntimeError("Task is not waiting for human interaction")
+            kind = str(action.get("type", "")).lower()
+            result: dict[str, Any] = {"type": kind}
+            page = session.page
+            x = self._xy(int(action.get("x", 0)), self.WIDTH)
+            y = self._xy(int(action.get("y", 0)), self.HEIGHT)
+            if kind == "click":
+                page.mouse.click(x, y)
+            elif kind == "double_click":
+                page.mouse.dblclick(x, y)
+            elif kind == "type":
+                page.keyboard.type(str(action.get("text", "")))
+            elif kind == "key":
+                page.keyboard.press(str(action.get("key", "")))
+            elif kind == "scroll":
+                delta = int(action.get("delta", 500) or 500)
+                page.mouse.move(x, y)
+                page.mouse.wheel(0, delta)
+            elif kind == "back":
+                page.go_back(wait_until="domcontentloaded", timeout=30000)
+            elif kind == "forward":
+                page.go_forward(wait_until="domcontentloaded", timeout=30000)
+            else:
+                raise ValueError(f"Unsupported human action: {kind}")
+            try:
+                page.wait_for_load_state(timeout=3000)
+            except Exception:
+                pass
+            self._save_state(session)
+            result.update(self.page_state(task_id))
+            return result
+
     def close(self, task_id: str) -> None:
         with self._lock:
             session = self._sessions.pop(task_id, None)
