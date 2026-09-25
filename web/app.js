@@ -237,3 +237,37 @@ $("historyList").addEventListener("click", e => {
 });
 
 renderHistory();
+
+function configureFigmaCaptureDemo() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const view = params.get("figmaview");
+  if (!view) return;
+  const runtimeOnly = view === "runtime" || view === "handoff";
+  document.querySelectorAll(".nav,.view").forEach(el => el.classList.toggle("hidden", runtimeOnly));
+  if (runtimeOnly) {
+    $("runtimeCard").classList.remove("hidden");
+    $("runtimeCard").style.marginTop = "12px";
+    const waiting = view === "handoff";
+    $("status").textContent = waiting ? "بانتظار تدخلك" : "ينفّذ الآن";
+    $("dot").style.background = waiting ? "#ffb84d" : "#35d07f";
+    $("handoff").classList.toggle("hidden", !waiting);
+    $("humanControls").classList.toggle("hidden", !waiting);
+    $("resume").classList.toggle("hidden", !waiting);
+    $("cancel").textContent = waiting ? "إلغاء المهمة" : "إيقاف";
+    $("timeline").innerHTML = '<div class="step"><span class="num">1</span><div><strong>فتح جلسة المتصفح</strong><br><small>الوكيل يقرأ الحالة الحالية للصفحة</small></div></div><div class="step"><span class="num">2</span><div><strong>' + (waiting ? "توقف للمصادقة" : "تنفيذ الإجراء التالي") + '</strong><br><small>' + (waiting ? "يلزم إجراء بشري داخل الجلسة" : "التنفيذ مستمر مع التحقق بعد كل خطوة") + '</small></div></div>';
+    const page = waiting
+      ? '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620"><rect width="1000" height="620" fill="#0d1015"/><rect x="40" y="40" width="920" height="70" rx="18" fill="#171c25"/><rect x="180" y="160" width="640" height="70" rx="16" fill="#11151c" stroke="#353e4a"/><rect x="180" y="250" width="640" height="70" rx="16" fill="#11151c" stroke="#353e4a"/><rect x="350" y="380" width="300" height="64" rx="16" fill="#1677ff"/><text x="500" y="420" fill="#fff" text-anchor="middle" font-size="28" font-family="Arial">تسجيل الدخول</text><text x="500" y="145" fill="#f7f8fa" text-anchor="middle" font-size="32" font-family="Arial">التحقق مطلوب للمتابعة</text></svg>'
+      : '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620"><rect width="1000" height="620" fill="#0d1015"/><rect x="40" y="40" width="920" height="70" rx="18" fill="#171c25"/><text x="80" y="85" fill="#9aa4b2" font-size="25" font-family="Arial">example.com</text><text x="70" y="175" fill="#f7f8fa" font-size="42" font-family="Arial">Example Domain</text><text x="70" y="230" fill="#9aa4b2" font-size="25" font-family="Arial">Example Domain</text><rect x="70" y="290" width="420" height="55" rx="14" fill="#1677ff"/><text x="280" y="326" fill="#fff" text-anchor="middle" font-size="23" font-family="Arial">قراءة النتيجة</text></svg>';
+    $("screen").src = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(page);
+    $("screenEmpty").classList.add("hidden");
+    return;
+  }
+  const targetMap = {home:"homeView",tasks:"tasksView",activity:"activityView",settings:"settingsView"};
+  const target = targetMap[view];
+  if (target) {
+    setView(target);
+    document.querySelectorAll(".nav button").forEach(b => b.classList.toggle("active", b.dataset.view === target));
+  }
+}
+
+configureFigmaCaptureDemo();
