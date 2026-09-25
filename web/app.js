@@ -125,7 +125,11 @@ $("resume").onclick = async () => {
   $("resume").disabled = true;
   $("resume").textContent = "جاري الاستئناف…";
   try {
-    const response = await fetch('/v1/tasks/' + id + '/resume', {method: "POST"});
+    const response = await fetch('/v1/tasks/' + id + '/resume', {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({confirmed: true})
+    });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "تعذر الاستئناف");
     draw(data);
