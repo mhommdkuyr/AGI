@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from .agent_runtime import runtime
 from .config import settings
 from .domain import TaskRecord, TaskStatus
-from .schemas import HealthResponse, TaskCreate, TaskResponse
+from .schemas import HealthResponse, ResumeRequest, TaskCreate, TaskResponse
 from .store import store
 from .usage import ledger
 
@@ -72,14 +72,14 @@ async def task_screen(task_id: UUID):
     return Response(content=image, media_type="image/png", headers={"Cache-Control":"no-store"})
 
 @app.post("/v1/tasks/{task_id}/resume", response_model=TaskResponse)
-async def resume_task(task_id: UUID, background_tasks: BackgroundTasks):
+async def resume_task(task_id: UUID, payload: ResumeRequest, background_tasks: BackgroundTasks):
     task = store.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status != TaskStatus.WAITING_HUMAN:
         raise HTTPException(status_code=409, detail="Task is not waiting for human input")
     task.touch()
-    background_tasks.add_task(runtime.run, task)
+    background_tasks.add_task(runtime.run, task, "auto", None, payload.confirmed)
     return to_response(task)
 
 
