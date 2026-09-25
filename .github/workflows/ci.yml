@@ -17,3 +17,8 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: python -m compileall server tests
       - run: pytest -q
+      - name: Live Gemini Computer Use smoke test
+        if: ${{ secrets.GOOGLE_API_KEY != '' }}
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: python tests/smoke_gemini.py
