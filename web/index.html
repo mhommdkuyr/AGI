@@ -93,5 +93,20 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:520px;
   <button data-view="activityView"><i>◌</i>النشاط</button>
   <button data-view="settingsView"><i>⚙</i>الإعدادات</button>
 </nav>
-<script>if(location.hash.includes("figmacapture=")){const s=document.createElement("script");s.src="https://mcp.figma.com/mcp/html-to-design/capture.js";s.async=true;document.head.appendChild(s)}</script><script src="/web/app.js"></script>
+<script>
+if(location.hash.includes("figmacapture=")){
+  const p=new URLSearchParams(location.hash.slice(1));
+  const captureId=p.get("figmacapture");
+  const endpoint=p.get("figmaendpoint");
+  const s=document.createElement("script");
+  s.src="https://mcp.figma.com/mcp/html-to-design/capture.js";
+  s.onload=()=>{
+    const run=()=>window.figma?.captureForDesign?.({captureId,endpoint,selector:"body"});
+    run();
+    setTimeout(run,1200);
+  };
+  s.async=true;
+  document.head.appendChild(s);
+}
+</script><script src="/web/app.js"></script>
 </body></html>
