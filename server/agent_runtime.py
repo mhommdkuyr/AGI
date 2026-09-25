@@ -25,6 +25,7 @@ class AgentRuntime:
         complexity: str = "auto",
         on_update: Callable[[TaskRecord], Awaitable[None]] | None = None,
     ) -> TaskRecord:
+        was_waiting_human = task.status == TaskStatus.WAITING_HUMAN
         effective_complexity = classify_complexity(task.prompt) if complexity == "auto" else complexity
         choice = self.router.choose(
             budget_usd=task.budget_usd,
@@ -47,6 +48,7 @@ class AgentRuntime:
                 enriched_prompt,
                 self.settings.default_max_steps,
                 task.budget_usd,
+                resume=was_waiting_human,
             )
             task.steps = int(meta.get("turns", 0))
             task.spent_usd = float(meta.get("provider_cost_usd", 0.0) or 0.0)
