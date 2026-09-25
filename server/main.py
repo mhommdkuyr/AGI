@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 from uuid import UUID
 
@@ -18,6 +20,40 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
+
+
+async def _startup_smoke_test() -> None:
+    if runtime.gemini_cua is None:
+        print("STARTUP_SMOKE: skipped; GOOGLE_API_KEY/GEMINI_API_KEY is not configured")
+        return
+    task_id = "startup-smoke"
+    try:
+        result, meta = await asyncio.to_thread(
+            runtime.gemini_cua.run,
+            task_id,
+            (
+                "Open https://example.com. Read the current page and return one concise "
+                "sentence containing the exact page title and the final URL. Do not visit any other site."
+            ),
+            8,
+            0.10,
+        )
+        print(
+            "STARTUP_SMOKE: "
+            f"status={meta.get('status')} usage_known={meta.get('usage_known')} "
+            f"turns={meta.get('turns')} cost_usd={meta.get('provider_cost_usd')} "
+            f"final_url={meta.get('final_url')} result={result!r}"
+        )
+    except Exception as exc:
+        print(f"STARTUP_SMOKE: failed: {exc}")
+    finally:
+        runtime.gemini_cua.close(task_id)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    if os.getenv("STARTUP_SMOKE_TEST", "").lower() == "true":
+        asyncio.create_task(_startup_smoke_test())
 
 
 def to_response(task: TaskRecord) -> TaskResponse:
@@ -75,7 +111,7 @@ async def task_screen(task_id: UUID):
     if not runtime.gemini_cua.has_session(str(task.id)):
         raise HTTPException(status_code=409, detail="Browser session is not ready")
     try:
-        image = await __import__("asyncio").to_thread(runtime.gemini_cua.screenshot, str(task.id))
+        image = await asyncio.to_thread(runtime.gemini_cua.screenshot, str(task.id))
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(content=image, media_type="image/png", headers={"Cache-Control": "no-store"})
@@ -92,7 +128,7 @@ async def human_input(task_id: UUID, payload: HumanInput):
         raise HTTPException(status_code=503, detail="Computer-use runtime is not configured")
     action = payload.model_dump(exclude_none=True)
     try:
-        state = await __import__("asyncio").to_thread(
+        state = await asyncio.to_thread(
             runtime.gemini_cua.human_input, str(task.id), action
         )
     except (RuntimeError, ValueError) as exc:
