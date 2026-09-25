@@ -39,3 +39,7 @@ class HumanInput(BaseModel):
     text: str | None = Field(default=None, max_length=2000)
     key: str | None = Field(default=None, max_length=50)
     delta: int | None = Field(default=None, ge=-5000, le=5000)
+
+
+class ResumeRequest(BaseModel):
+    confirmed: bool = True
