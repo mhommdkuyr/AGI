@@ -8,7 +8,7 @@ The system separates intelligence from execution:
 
 - Gemini 3.8 Flash is the default browser/computer-use model.
 - Claude Sonnet 5 and GPT-6 Sol are configurable escalation providers.
-- Browser Use + Playwright provide the browser execution layer.
+- Playwright provides the browser execution layer; Gemini Computer Use provides the visual action policy.
 - The runtime adds task state, budgets, model routing, loop protection, human handoff, and verification hooks.
 - A mobile-first progressive web interface is included as the first client surface.
 
@@ -24,4 +24,4 @@ uv run uvicorn server.main:app --reload
 
 Open http://localhost:8000/.
 
-The first milestone is a real single-user execution core. Multi-tenant persistence, billing, tax configuration, durable queues, isolated browser workers, push notifications, and native Android packaging are designed as the next layers.
+The current milestone is a real single-user execution core with a live mobile execution view. Multi-tenant persistence, billing, tax configuration, durable queues, isolated browser workers, human browser control, push notifications, and native Android packaging remain production layers.
