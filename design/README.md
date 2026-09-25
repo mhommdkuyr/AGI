@@ -38,6 +38,15 @@ https://www.figma.com/design/JHAMCaPNflO20n7Gc3ZMal
 - إلغاء المهمة.
 - تحديد الميزانية ومراقبة الاستهلاك.
 
+## شاشات فيجما الملتقطة
+
+- الرئيسية: https://www.figma.com/design/JHAMCaPNflO20n7Gc3ZMal?node-id=2-2
+- المهام: https://www.figma.com/design/JHAMCaPNflO20n7Gc3ZMal?node-id=5-2
+- النشاط: https://www.figma.com/design/JHAMCaPNflO20n7Gc3ZMal?node-id=6-2
+- الإعدادات: https://www.figma.com/design/JHAMCaPNflO20n7Gc3ZMal?node-id=7-2
+- التنفيذ المباشر: https://www.figma.com/design/JHAMCaPNflO20n7Gc3ZMal?node-id=8-2
+- تدخل المستخدم: https://www.figma.com/design/JHAMCaPNflO20n7Gc3ZMal?node-id=9-2
+
 ## المصدر
 
 يوجد ملف مصدر بصيغة رموز التصميم داخل المستودع، ونسخة SVG كاملة يمكن استيرادها إلى فيجما من ملفات التسليم الخارجية.
