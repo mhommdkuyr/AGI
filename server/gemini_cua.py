@@ -128,6 +128,10 @@ class GeminiComputerUse:
             encoding="utf-8",
         )
 
+    def has_session(self, task_id: str) -> bool:
+        with self._lock:
+            return task_id in self._sessions
+
     def screenshot(self, task_id: str) -> bytes:
         session = self._get_or_create(task_id)
         with session.lock:
