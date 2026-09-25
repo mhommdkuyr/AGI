@@ -26,7 +26,19 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:520px;
 <div class="live-head"><strong>التنفيذ المباشر</strong><span class="status"><span id="dot" class="dot"></span><span id="status">في الانتظار</span></span></div>
 <div class="screen-wrap"><img id="screen" class="screen" alt="المتصفح المباشر"><div id="screenEmpty" class="screen-empty">بانتظار بدء المتصفح…</div></div>
 <div class="timeline" id="timeline"></div>
-<div id="handoff" class="warn hidden"><strong>تحتاج المهمة إلى تدخلك.</strong><br><span id="handoffText">أكمل تسجيل الدخول أو التحقق في نافذة المتصفح، ثم اضغط متابعة.</span></div>
+<div id="handoff" class="warn hidden"><strong>تحتاج المهمة إلى تدخلك.</strong><br><span id="handoffText">أكمل تسجيل الدخول أو التحقق في جلسة المتصفح. يمكنك النقر داخل الصورة أو إرسال نص ولوحة مفاتيح.</span></div>
+<div id="humanControls" class="hidden" style="padding:0 16px 16px">
+  <div class="label">تحكم مباشر</div>
+  <div class="row">
+    <input id="humanText" class="budget" placeholder="اكتب نصاً للصفحة">
+    <button id="humanSend" class="ghost" style="width:auto">إرسال</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="humanBack" class="ghost">رجوع</button>
+    <button id="humanForward" class="ghost">تقدم</button>
+    <button id="humanScroll" class="ghost">تمرير</button>
+  </div>
+</div>
 <div id="result" class="result hidden"></div>
 <div class="row" style="padding:0 16px 16px"><button id="resume" class="primary hidden">متابعة المهمة</button><button id="cancel" class="ghost">إلغاء</button></div>
 </section>
