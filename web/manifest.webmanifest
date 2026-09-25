@@ -1,1 +1,12 @@
-{"name":"Universal Web Agent","short_name":"Web Agent","start_url":"/","display":"standalone","background_color":"#f3f4f6","theme_color":"#111827","description":"Mobile-first web task agent"}
+{
+  "name": "وكيل الويب العام",
+  "short_name": "وكيل",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07090d",
+  "theme_color": "#07090d",
+  "description": "وكيل عام لتنفيذ المهام على الويب مع جلسة متصفح حية",
+  "orientation": "portrait",
+  "lang": "ar",
+  "dir": "rtl"
+}
