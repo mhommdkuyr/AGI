@@ -9,6 +9,10 @@ class TaskCreate(BaseModel):
     complexity: str = Field(default="normal", pattern="^(normal|hard|extreme)$")
 
 
+class ResumeRequest(BaseModel):
+    confirmed: bool = False
+
+
 class TaskResponse(BaseModel):
     id: str
     status: TaskStatus
