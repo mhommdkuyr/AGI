@@ -10,7 +10,6 @@ on:
 
 jobs:
   test:
-    if: ${{ github.event_name != 'issue_comment' || (github.event.comment.body == '/test-live' && github.event.issue.pull_request) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +23,7 @@ jobs:
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: Live Gemini Computer Use smoke test
-        if: ${{ secrets.GOOGLE_API_KEY != '' || secrets.GEMINI_API_KEY != '' }}
+        if: ${{ env.GOOGLE_API_KEY != '' || env.GEMINI_API_KEY != '' }}
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
