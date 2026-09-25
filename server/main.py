@@ -73,6 +73,22 @@ async def task_screen(task_id: UUID):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(content=image, media_type="image/png", headers={"Cache-Control":"no-store"})
 
+@app.post("/v1/tasks/{task_id}/human-input")
+async def human_input(task_id: UUID, payload: HumanInput):
+    task = store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status != TaskStatus.WAITING_HUMAN:
+        raise HTTPException(status_code=409, detail="Task is not waiting for human interaction")
+    if runtime.gemini_cua is None:
+        raise HTTPException(status_code=503, detail="Computer-use runtime is not configured")
+    action = payload.model_dump(exclude_none=True)
+    try:
+        state = await __import__("asyncio").to_thread(runtime.gemini_cua.human_input, str(task.id), action)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "state": state}
+
 @app.post("/v1/tasks/{task_id}/resume", response_model=TaskResponse)
 async def resume_task(task_id: UUID, payload: ResumeRequest, background_tasks: BackgroundTasks):
     task = store.get(task_id)
