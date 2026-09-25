@@ -24,6 +24,7 @@ class AgentRuntime:
         task: TaskRecord,
         complexity: str = "auto",
         on_update: Callable[[TaskRecord], Awaitable[None]] | None = None,
+        user_confirmed: bool = False,
     ) -> TaskRecord:
         was_waiting_human = task.status == TaskStatus.WAITING_HUMAN
         effective_complexity = classify_complexity(task.prompt) if complexity == "auto" else complexity
@@ -49,6 +50,7 @@ class AgentRuntime:
                 self.settings.default_max_steps,
                 task.budget_usd,
                 resume=was_waiting_human,
+                user_confirmed=user_confirmed,
             )
             task.steps = int(meta.get("turns", 0))
             task.spent_usd = float(meta.get("provider_cost_usd", 0.0) or 0.0)
