@@ -103,14 +103,14 @@ class AgentRuntime:
             await on_update(task)
         return task
 
-    async def resume(self, task: TaskRecord) -> TaskRecord:
+    async def resume(self, task: TaskRecord, user_confirmed: bool = False) -> TaskRecord:
         if task.status != TaskStatus.WAITING_HUMAN:
             return task
         task.status = TaskStatus.RUNNING
         task.handoff_reason = None
         task.error = None
         task.touch()
-        return await self.run(task, "auto")
+        return await self.run(task, "auto", user_confirmed=user_confirmed)
 
     async def _make_agent_prompt(self, task_prompt: str, choice: ModelChoice) -> str:
         if choice.planner_model == choice.executor_model:
