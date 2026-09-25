@@ -97,7 +97,7 @@ function draw(d) {
   $("lastEvent").textContent = d.error ? d.error : d.result ? "اكتملت المهمة وتم استلام النتيجة." : "الجولة الحالية: " + String(d.steps||0);
 
   syncTaskRecord(d);
-  if (active || waiting) startScreen();
+  if (active || waiting) startScreen(); else { clearTimeout(screenTimer); screenTimer = null; }
   if (d.status !== lastStatus && d.status === "succeeded") {
     setView("tasksView");
   }
