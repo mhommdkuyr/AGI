@@ -65,6 +65,8 @@ async def task_screen(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found")
     if runtime.gemini_cua is None:
         raise HTTPException(status_code=503, detail="Computer-use runtime is not configured")
+    if not runtime.gemini_cua.has_session(str(task.id)):
+        raise HTTPException(status_code=409, detail="Browser session is not ready")
     try:
         image = await __import__("asyncio").to_thread(runtime.gemini_cua.screenshot, str(task.id))
     except Exception as exc:
