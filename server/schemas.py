@@ -30,3 +30,12 @@ class TaskResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class HumanInput(BaseModel):
+    type: str = Field(pattern="^(click|double_click|type|key|scroll|back|forward)$")
+    x: int | None = Field(default=None, ge=0, le=1000)
+    y: int | None = Field(default=None, ge=0, le=1000)
+    text: str | None = Field(default=None, max_length=2000)
+    key: str | None = Field(default=None, max_length=50)
+    delta: int | None = Field(default=None, ge=-5000, le=5000)
