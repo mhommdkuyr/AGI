@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .agent_runtime import runtime
@@ -58,6 +58,19 @@ async def get_task(task_id: UUID):
     return to_response(task)
 
 
+@app.get("/v1/tasks/{task_id}/screen")
+async def task_screen(task_id: UUID):
+    task = store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if runtime.gemini_cua is None:
+        raise HTTPException(status_code=503, detail="Computer-use runtime is not configured")
+    try:
+        image = await __import__("asyncio").to_thread(runtime.gemini_cua.screenshot, str(task.id))
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(content=image, media_type="image/png", headers={"Cache-Control":"no-store"})
+
 @app.post("/v1/tasks/{task_id}/resume", response_model=TaskResponse)
 async def resume_task(task_id: UUID, background_tasks: BackgroundTasks):
     task = store.get(task_id)
@@ -65,7 +78,6 @@ async def resume_task(task_id: UUID, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status != TaskStatus.WAITING_HUMAN:
         raise HTTPException(status_code=409, detail="Task is not waiting for human input")
-    task.status = TaskStatus.QUEUED
     task.touch()
     background_tasks.add_task(runtime.run, task)
     return to_response(task)
