@@ -24,7 +24,7 @@ app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 
 async def _startup_smoke_test() -> None:
     if runtime.gemini_cua is None:
-        print("STARTUP_SMOKE: skipped; GOOGLE_API_KEY/GEMINI_API_KEY is not configured")
+        print("STARTUP_SMOKE: skipped; GOOGLE_API_KEY/GEMINI_API_KEY is not configured", flush=True)
         return
     task_id = "startup-smoke"
     try:
@@ -42,10 +42,10 @@ async def _startup_smoke_test() -> None:
             "STARTUP_SMOKE: "
             f"status={meta.get('status')} usage_known={meta.get('usage_known')} "
             f"turns={meta.get('turns')} cost_usd={meta.get('provider_cost_usd')} "
-            f"final_url={meta.get('final_url')} result={result!r}"
+            f"final_url={meta.get('final_url')} result={result!r}", flush=True
         )
     except Exception as exc:
-        print(f"STARTUP_SMOKE: failed: {exc}")
+        print(f"STARTUP_SMOKE: failed: {exc}", flush=True)
     finally:
         runtime.gemini_cua.close(task_id)
 
