@@ -76,6 +76,10 @@ def to_response(task: TaskRecord) -> TaskResponse:
 async def index():
     return FileResponse(WEB_DIR / "index.html")
 
+@app.head("/", include_in_schema=False)
+async def index_head():
+    return Response(status_code=200)
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
@@ -84,6 +88,8 @@ async def health():
 
 @app.post("/v1/tasks", response_model=TaskResponse)
 async def create_task(payload: TaskCreate, background_tasks: BackgroundTasks):
+    if runtime.gemini_cua is None:
+        raise HTTPException(status_code=503, detail="Computer-use runtime is not configured. Add GOOGLE_API_KEY or GEMINI_API_KEY to the deployed service.")
     budget = payload.budget_usd or settings.default_task_budget_usd
     task = TaskRecord.new(user_id="local-dev-user", prompt=payload.prompt, budget_usd=budget)
     ledger.reserve(task.id, budget)
