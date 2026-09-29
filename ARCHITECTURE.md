@@ -8,10 +8,11 @@ Create a browser-first general web agent that can accept a natural-language obje
 
 1. Interpret the objective and define a verifiable success condition.
 2. Select a model according to task complexity and budget.
-3. Observe the browser state.
-4. Ask the model for the next action(s).
-5. Execute actions through Playwright/browser-use.
-6. Observe the resulting state again.
+3. Observe the browser state using structured DOM-first extraction.
+4. When the page is sparse, canvas-heavy, or otherwise requires visual grounding, render a Set-of-Mark PNG; Computer Use action-result turns always receive a PNG because the Gemini API requires an image in each function result.
+5. Ask the model for the next action(s).
+6. Execute actions through Playwright.
+7. Observe the resulting state again.
 7. Verify that the intended transition occurred.
 8. Continue, recover with a new strategy, or hand off to the user.
 9. Stop on verified success, cancellation, hard failure, or budget exhaustion.
@@ -19,6 +20,10 @@ Create a browser-first general web agent that can accept a natural-language obje
 ## Model policy
 
 The first production candidate is Gemini 3.8 Flash because Google documents it as the recommended model for computer use and currently prices it materially below the flagship alternatives. Claude Sonnet 5 is the configured escalation provider for harder agentic workloads. GPT-6 Sol is a second escalation path. Actual parity with any flagship model must be established by our own benchmark suite; the router does not assume parity.
+
+## Economical vision
+
+DOM observation is the default signal. Interactive elements are normalized to a 0-1000 coordinate space without exposing input values. The visual fallback annotates those regions with numeric marks instead of sending an unannotated screenshot. The raw screenshot endpoint remains a client-only live-view surface.
 
 ## Cost control
 
