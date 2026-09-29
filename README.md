@@ -32,3 +32,6 @@ The current milestone is a real single-user execution core with a live mobile ex
 ## Android mobile PoC
 
 The repository includes mobile-android/, a native Android client that pairs an AccessibilityService UI-tree/screenshot adapter with Gemini Computer Use's mobile environment. It is intended for internal PoC/testing and is not a claim of general Google Play eligibility.
+
+
+<!-- UCOA control endpoint validated separately; final CI keeps Gemini live smoke manual-only. -->
