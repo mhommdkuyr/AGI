@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("UCOA_API_TOKEN", "UCOA_AGENT_TOKEN"),
     )
     ucoa_timeout_s: float = Field(default=35.0, gt=1.0, le=120.0)
+    ucoa_control_path: str = "/v1/agent/step"
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     primary_model: str = "gemini-3.8-flash"
