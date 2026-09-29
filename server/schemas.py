@@ -1,12 +1,14 @@
 from pydantic import BaseModel, Field
 
-from .domain import HandoffReason, TaskStatus
+from .domain import HandoffReason, TaskStatus, TaskTarget
 
 
 class TaskCreate(BaseModel):
     prompt: str = Field(min_length=3, max_length=10000)
     budget_usd: float | None = Field(default=None, gt=0, le=100)
     complexity: str = Field(default="normal", pattern="^(normal|hard|extreme)$")
+    target: TaskTarget = TaskTarget.BROWSER
+    mobile_session_id: str | None = Field(default=None, max_length=128)
 
 
 class ResumeRequest(BaseModel):
@@ -15,6 +17,7 @@ class ResumeRequest(BaseModel):
 
 class TaskResponse(BaseModel):
     id: str
+    target: TaskTarget
     status: TaskStatus
     model: str | None
     spent_usd: float
