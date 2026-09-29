@@ -32,7 +32,6 @@ class MainActivity : Activity() {
             text = value
             textSize = size
             setTextColor(color)
-            textDirection = View.TEXT_DIRECTION_ANY
         }
 
     private fun card() = LinearLayout(this).apply {
@@ -78,7 +77,7 @@ class MainActivity : Activity() {
         taskCard.addView(text("المهمة", 13f, Color.rgb(203, 211, 223)))
         prompt = EditText(this).apply {
             hint = "مثال: افتح تطبيق الساعة واضبط منبهاً على 07:00"
-            hintTextColor = Color.rgb(117, 117, 117)
+            setHintTextColor(Color.rgb(117, 117, 117))
             setTextColor(Color.WHITE)
             setPadding(dp(14), dp(14), dp(14), dp(14))
             minLines = 5
@@ -99,7 +98,7 @@ class MainActivity : Activity() {
             setText("0.75")
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
             setTextColor(Color.WHITE)
-            hintTextColor = Color.GRAY
+            setHintTextColor(Color.GRAY)
             gravity = Gravity.CENTER
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Color.rgb(10, 13, 18))
