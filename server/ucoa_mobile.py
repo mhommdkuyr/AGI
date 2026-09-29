@@ -11,10 +11,17 @@ from typing import Any
 class UcoaMobileComputerUse:
     """Cloud brain adapter for UCOA; Android execution remains owned by this app."""
 
-    def __init__(self, base_url: str, api_token: str | None = None, timeout_s: float = 35.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_token: str | None = None,
+        timeout_s: float = 35.0,
+        control_path: str = "/v1/agent/step",
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_token = (api_token or "").strip()
         self.timeout_s = timeout_s
+        self.control_path = "/" + control_path.strip("/")
 
     def _request(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -57,7 +64,7 @@ class UcoaMobileComputerUse:
         return {"_job_id": job_id}
 
     def _step(self, payload: dict[str, Any]) -> dict[str, Any]:
-        result = self._unwrap(self._request("/v1/agent/step", payload))
+        result = self._unwrap(self._request(self.control_path, payload))
         job_id = str(result.get("_job_id") or "")
         if not job_id:
             return result
