@@ -11,6 +11,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
@@ -24,7 +27,4 @@ jobs:
         run: python -m playwright install --with-deps chromium
       - name: Live Gemini Computer Use smoke test
         if: ${{ env.GOOGLE_API_KEY != '' || env.GEMINI_API_KEY != '' }}
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python tests/smoke_gemini.py
