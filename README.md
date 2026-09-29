@@ -8,7 +8,9 @@ The system separates intelligence from execution:
 
 - Gemini 3.8 Flash is the default browser/computer-use model.
 - Claude Sonnet 5 and GPT-6 Sol are configurable escalation providers.
-- Playwright provides the browser execution layer; Gemini Computer Use provides the visual action policy.
+- Playwright provides the browser execution layer; Gemini Computer Use provides the action policy.
+- Browser observation is DOM-first: visible interactive elements and page text are sent as structured context; a Set-of-Mark PNG is generated as the compact visual frame required by Gemini Computer Use for action-result turns.
+- Raw screenshots are retained for the user live view, not used as the model payload.
 - The runtime adds task state, budgets, model routing, loop protection, human handoff, and verification hooks.
 - A mobile-first progressive web interface is included as the first client surface.
 
