@@ -8,6 +8,7 @@ from .config import Settings
 from .domain import HandoffReason, TaskRecord, TaskStatus
 from .gemini_cua import GeminiComputerUse
 from .gemini_mobile import GeminiMobileComputerUse
+from .ucoa_mobile import UcoaMobileComputerUse
 from .guardrails import classify_handoff, looks_like_loop
 from .model_router import ModelChoice, ModelRouter
 from .usage import ledger
@@ -24,6 +25,11 @@ class AgentRuntime:
             if settings.google_api_key
             else None
         )
+        self.ucoa_mobile = UcoaMobileComputerUse(
+            settings.ucoa_base_url,
+            settings.ucoa_api_token,
+            settings.ucoa_timeout_s,
+        )
 
     async def run(
         self,
@@ -34,26 +40,31 @@ class AgentRuntime:
     ) -> TaskRecord:
         was_waiting_human = task.status == TaskStatus.WAITING_HUMAN
         effective_complexity = classify_complexity(task.prompt) if complexity == "auto" else complexity
+        use_ucoa_mobile = task.target.value == "mobile" and self.settings.mobile_provider == "ucoa"
         choice = self.router.choose(
             budget_usd=task.budget_usd,
             complexity=effective_complexity,
         )
-        task.model = choice.executor_model
+        task.model = "ucoa-cloud-brain" if use_ucoa_mobile else choice.executor_model
         task.status = TaskStatus.RUNNING
         task.touch()
         if on_update:
             await on_update(task)
 
         try:
-            if self.gemini_cua is None:
-                raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
-
-            if task.target.value == "mobile" and (
-                self.gemini_mobile is None or not task.mobile_session_id
-            ):
-                raise RuntimeError("Mobile computer-use runtime requires a configured mobile session.")
-
-            enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            if task.target.value == "mobile":
+                if not task.mobile_session_id:
+                    raise RuntimeError("Mobile computer-use runtime requires a configured mobile session.")
+                if self.settings.mobile_provider == "ucoa":
+                    enriched_prompt, planner_cost = task.prompt, 0.0
+                else:
+                    if self.gemini_cua is None or self.gemini_mobile is None:
+                        raise RuntimeError("GOOGLE_API_KEY is required for the Gemini mobile runtime.")
+                    enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            else:
+                if self.gemini_cua is None:
+                    raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
+                enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
             if planner_cost == float("inf"):
                 task.status = TaskStatus.FAILED
                 task.metering_state = "unknown"
@@ -77,8 +88,11 @@ class AgentRuntime:
 
             remaining_budget = max(task.budget_usd - planner_cost, 0.0)
             if task.target.value == "mobile":
+                mobile_runtime = self.ucoa_mobile if self.settings.mobile_provider == "ucoa" else self.gemini_mobile
+                if mobile_runtime is None:
+                    raise RuntimeError("Mobile runtime is not configured.")
                 final_text, meta = await asyncio.to_thread(
-                    self.gemini_mobile.run,
+                    mobile_runtime.run,
                     str(task.id),
                     enriched_prompt,
                     self.settings.default_max_steps,
