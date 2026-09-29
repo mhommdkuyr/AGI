@@ -70,6 +70,8 @@ class GeminiMobileComputerUse:
 
     @staticmethod
     def _so_m_observation(session: MobileSession) -> tuple[dict[str, Any], bytes]:
+        if not session.screenshot_b64 or session.observation is None:
+            session.wait_for_observation(timeout_s=30.0)
         observation = dict(session.observation or {})
         nodes = observation.get("nodes") or []
         width = int(observation.get("screen_width") or observation.get("width") or 1080)
