@@ -153,7 +153,7 @@ jobs:
 
             SID=""
             for i in $(seq 1 30); do
-              SID=$(adb shell run-as com.agi.omni cat shared_prefs/agent.xml 2>/dev/null | sed -n 's/.*name="session_id">\\([^<]*\\)<\\/string>.*/\\1/p' | tr -d '\\r')
+              SID=$(adb shell run-as com.agi.omni cat shared_prefs/agent.xml 2>/dev/null | grep -o 'name="session_id">[^<]*' | sed 's/.*>//' | tr -d '\\r')
               if [ -n "$SID" ]; then
                 echo "MOBILE_SESSION_ID $SID"
                 break
