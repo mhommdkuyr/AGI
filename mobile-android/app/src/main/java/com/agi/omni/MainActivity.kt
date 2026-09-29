@@ -2,6 +2,7 @@ package com.agi.omni
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.os.Bundle
 import android.provider.Settings
@@ -10,14 +11,19 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val liveExecutor = Executors.newSingleThreadScheduledExecutor()
+    private var liveFuture: ScheduledFuture<*>? = null
     private val prefs by lazy { getSharedPreferences("agent", MODE_PRIVATE) }
     private lateinit var status: TextView
     private lateinit var prompt: EditText
     private lateinit var budget: EditText
     private lateinit var serverUrl: EditText
+    private lateinit var liveScreenView: ImageView
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
@@ -111,6 +117,19 @@ class MainActivity : Activity() {
         taskCard.addView(row, LinearLayout.LayoutParams(-1, dp(66)).apply { topMargin = dp(10) })
         root.addView(taskCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
 
+        root.addView(text("البث الحي", 13f, Color.rgb(203, 211, 223)).apply {
+            setPadding(dp(2), dp(18), 0, dp(8))
+        })
+        val liveScreen = ImageView(this).apply {
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(Color.rgb(10, 13, 18))
+            contentDescription = "عرض حي لشاشة الهاتف أثناء تنفيذ المهمة"
+            minimumHeight = dp(260)
+        }
+        this.liveScreenView = liveScreen
+        root.addView(liveScreen, LinearLayout.LayoutParams(-1, dp(520)))
+
         val controlCard = card()
         controlCard.addView(text("التحكم على الهاتف", 13f, Color.rgb(203, 211, 223)))
         controlCard.addView(Button(this).apply {
@@ -163,6 +182,7 @@ class MainActivity : Activity() {
                         prefs.edit().putString("session_id", it).apply()
                     }
                 val taskId = api.submitMobileTask(taskText, budgetValue, sessionId)
+                startLiveView(api, taskId)
                 runOnUiThread {
                     status.text = "تم إرسال المهمة: " + taskId
                     Toast.makeText(this, "تبدأ الآن حلقة التنفيذ على الجهاز.", Toast.LENGTH_LONG).show()
@@ -173,7 +193,24 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startLiveView(api: MobileApi, taskId: String) {
+        liveFuture?.cancel(false)
+        liveFuture = liveExecutor.scheduleAtFixedRate({
+            try {
+                val bytes = api.fetchScreen(taskId) ?: return@scheduleAtFixedRate
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@scheduleAtFixedRate
+                runOnUiThread {
+                    if (!isFinishing) liveScreenView.setImageBitmap(bitmap)
+                }
+            } catch (_: Exception) {
+                // The task may not have emitted its first screenshot yet.
+            }
+        }, 0L, 1200L, TimeUnit.MILLISECONDS)
+    }
+
     override fun onDestroy() {
+        liveFuture?.cancel(true)
+        liveExecutor.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
     }
