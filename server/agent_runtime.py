@@ -43,8 +43,19 @@ class AgentRuntime:
                 raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
 
             enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            if planner_cost == float("inf"):
+                task.status = TaskStatus.FAILED
+                task.metering_state = "unknown"
+                task.error = "Planner usage was not observable; paid execution is stopped."
+                task.spent_usd = 0.0
+                ledger.settle(task.id, task.spent_usd)
+                task.touch()
+                if on_update:
+                    await on_update(task)
+                return task
             if planner_cost >= task.budget_usd:
                 task.status = TaskStatus.FAILED
+                task.metering_state = "measured"
                 task.error = "Planning cost exhausted the task budget."
                 task.spent_usd = planner_cost
                 ledger.settle(task.id, task.spent_usd)
