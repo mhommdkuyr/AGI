@@ -39,11 +39,52 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_gemini == true && (env.GOOGLE_API_KEY != '' || env.GEMINI_API_KEY != '') }}
         run: python tests/smoke_gemini.py
 
+  ucoa-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UCOA_BASE_URL: https://ucoa-agent-brain-69bo.onrender.com
+      UCOA_API_TOKEN: ${{ secrets.UCOA_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Live UCOA provider smoke (no AGI Gemini)
+        run: python tests/smoke_ucoa.py
+
   android:
     runs-on: ubuntu-latest
     steps:
       - name: Run actions/checkout@v4
         uses: actions/checkout@v4
+
+      - name: Set up Python for local API
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install local API dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Start UCOA-backed AGI API (Gemini disabled)
+        env:
+          MOBILE_PROVIDER: ucoa
+          UCOA_BASE_URL: https://ucoa-agent-brain-69bo.onrender.com
+          UCOA_API_TOKEN: ${{ secrets.UCOA_API_TOKEN }}
+          GOOGLE_API_KEY: ""
+          GEMINI_API_KEY: ""
+        run: |
+          nohup python -m uvicorn server.main:app --host 0.0.0.0 --port 8000 >/tmp/agi-ucoa-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health >/tmp/agi-health.json; then
+              cat /tmp/agi-health.json
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -81,7 +122,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Android install and launch smoke test
+      - name: Android install, UCOA-backed execution and launch smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           working-directory: ./mobile-android
