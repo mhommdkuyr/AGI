@@ -75,3 +75,36 @@ def verify_browser_evidence(*, prompt: str, final_text: str, final_url: str, fin
             return VerificationResult(False, "Requested URL is not present in final evidence.")
 
     return VerificationResult(True, "Browser reached a valid terminal page and evidence matches requested constraints.")
+
+
+def verify_mobile_evidence(
+    *,
+    prompt: str,
+    final_text: str,
+    package_name: str,
+    activity_name: str,
+) -> VerificationResult:
+    """Verify that a mobile task ended with a real Android surface and evidence."""
+    if len(prompt.strip()) < 3:
+        return VerificationResult(False, "Task objective is too short to verify.")
+    if not final_text.strip():
+        return VerificationResult(False, "No final mobile evidence was produced.")
+    if not package_name.strip():
+        return VerificationResult(False, "No Android package was observed at task completion.")
+
+    requested_package = re.search(
+        r"(?:package|حزمة|تطبيق)s*[:=]?s*([A-Za-z0-9._-]{3,120})",
+        prompt,
+        re.IGNORECASE,
+    )
+    if requested_package and package_name.casefold() != requested_package.group(1).casefold():
+        return VerificationResult(
+            False,
+            f"Final package {package_name!r} does not match requested package {requested_package.group(1)!r}.",
+        )
+
+    return VerificationResult(
+        True,
+        f"Android terminal evidence observed in package {package_name}"
+        + (f" / {activity_name}" if activity_name else ""),
+    )
