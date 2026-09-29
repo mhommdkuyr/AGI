@@ -74,3 +74,23 @@ jobs:
           path: mobile-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Android install and launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          enable-hw-keyboard: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -n com.agi.omni/.MainActivity
+            sleep 5
+            adb shell pidof com.agi.omni
+            adb shell dumpsys activity activities | grep -E "com\.agi\.omni/.MainActivity|com\.agi\.omni"
