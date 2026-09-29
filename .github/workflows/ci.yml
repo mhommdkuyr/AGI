@@ -45,12 +45,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Prepare Android SDK
+      - name: Inspect preinstalled Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          which sdkmanager
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          test -d "$ANDROID_HOME"
+          ls -1 "$ANDROID_HOME/platforms" | tail -n 10 || true
+          ls -1 "$ANDROID_HOME/build-tools" | tail -n 10 || true
 
       - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v4
