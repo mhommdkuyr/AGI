@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      UCOA_BASE_URL: https://ucoa-agent-brain-69bo.onrender.com
+      UCOA_BASE_URL: https://ucoa-agent-brain-agi-control.onrender.com
       UCOA_API_TOKEN: ${{ secrets.UCOA_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
       - name: Start UCOA-backed AGI API (Gemini disabled)
         env:
           MOBILE_PROVIDER: ucoa
-          UCOA_BASE_URL: https://ucoa-agent-brain-69bo.onrender.com
+          UCOA_BASE_URL: https://ucoa-agent-brain-agi-control.onrender.com
           UCOA_API_TOKEN: ${{ secrets.UCOA_API_TOKEN }}
           GOOGLE_API_KEY: ""
           GEMINI_API_KEY: ""
