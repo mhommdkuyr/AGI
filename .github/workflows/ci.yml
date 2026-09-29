@@ -137,8 +137,92 @@ jobs:
           disable-animations: true
           enable-hw-keyboard: true
           script: |
+            set -euo pipefail
+
             adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+            # Test-only accessibility enablement inside the emulator.
+            adb shell settings put secure enabled_accessibility_services com.agi.omni/com.agi.omni.AgentAccessibilityService
+            adb shell settings put secure accessibility_enabled 1
+
             adb shell am start -n com.agi.omni/.MainActivity
-            sleep 5
+            sleep 8
             adb shell pidof com.agi.omni
             adb shell dumpsys activity activities | grep -E "com\.agi\.omni/.MainActivity|com\.agi\.omni"
+
+            python - <<'PY'
+            import re
+            import subprocess
+            import time
+
+            path = "shared_prefs/agent.xml"
+            for _ in range(30):
+                try:
+                    text = subprocess.check_output(
+                        ["adb", "shell", "run-as", "com.agi.omni", "cat", path],
+                        text=True,
+                    )
+                    match = re.search(r'<string name="session_id">([^<]+)</string>', text)
+                    if match:
+                        sid = match.group(1)
+                        print("MOBILE_SESSION_ID", sid)
+                        open("/tmp/mobile-session-id", "w").write(sid)
+                        break
+                except Exception:
+                    pass
+                time.sleep(1)
+            else:
+                raise SystemExit("Android app did not persist a mobile session id")
+            PY
+
+            python - <<'PY'
+            import json
+            import time
+            from urllib.request import Request, urlopen
+
+            sid = open("/tmp/mobile-session-id").read().strip()
+            payload = {
+                "prompt": "افتح تطبيق الإعدادات",
+                "target": "mobile",
+                "mobile_session_id": sid,
+                "budget_usd": 0.20,
+                "complexity": "normal",
+            }
+            req = Request(
+                "http://127.0.0.1:8000/v1/tasks",
+                data=json.dumps(payload, ensure_ascii=False).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=20) as response:
+                created = json.loads(response.read().decode())
+            task_id = created["id"]
+            print("AGI_TASK_ID", task_id)
+
+            terminal = None
+            deadline = time.time() + 100
+            while time.time() < deadline:
+                with urlopen(
+                    f"http://127.0.0.1:8000/v1/tasks/{task_id}",
+                    timeout=20,
+                ) as response:
+                    terminal = json.loads(response.read().decode())
+                print(
+                    "AGI_TASK_STATUS",
+                    terminal["status"],
+                    terminal.get("error", ""),
+                    "model=",
+                    terminal.get("model"),
+                )
+                if terminal["status"] in {"succeeded", "failed", "cancelled"}:
+                    break
+                time.sleep(2)
+
+            assert terminal and terminal["status"] == "succeeded", terminal
+            assert terminal["model"] == "ucoa-cloud-brain", terminal
+            print("UCOA_BACKED_ANDROID_TASK_PASS", json.dumps(terminal, ensure_ascii=False))
+            PY
+
+            # Confirm the Android agent actually changed the foreground package.
+            adb shell dumpsys activity activities | grep -F "com.android.settings"
+            echo "AGI_UCOA_ANDROID_E2E_PASS"
