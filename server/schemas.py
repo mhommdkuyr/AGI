@@ -42,3 +42,17 @@ class HumanInput(BaseModel):
     text: str | None = Field(default=None, max_length=2000)
     key: str | None = Field(default=None, max_length=50)
     delta: int | None = Field(default=None, ge=-5000, le=5000)
+
+
+class MobileSessionCreate(BaseModel):
+    device_name: str = Field(default="Android device", min_length=1, max_length=120)
+
+
+class MobileObservation(BaseModel):
+    observation: dict
+    screenshot_b64: str | None = None
+
+
+class MobileCommandResult(BaseModel):
+    result: dict
+    screenshot_b64: str | None = None
