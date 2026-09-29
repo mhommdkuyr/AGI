@@ -48,10 +48,12 @@ class AgentRuntime:
             if self.gemini_cua is None:
                 raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
 
-            if task.target.value == "mobile":
-                if self.gemini_mobile is None or not task.mobile_session_id:
-                    raise RuntimeError("Mobile computer-use runtime requires a configured mobile session.")
-                enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            if task.target.value == "mobile" and (
+                self.gemini_mobile is None or not task.mobile_session_id
+            ):
+                raise RuntimeError("Mobile computer-use runtime requires a configured mobile session.")
+
+            enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
             if planner_cost == float("inf"):
                 task.status = TaskStatus.FAILED
                 task.metering_state = "unknown"
