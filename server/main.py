@@ -161,14 +161,19 @@ async def post_mobile_command_result(session_id: str, payload: MobileCommandResu
 
 @app.post("/v1/tasks", response_model=TaskResponse)
 async def create_task(payload: TaskCreate, background_tasks: BackgroundTasks):
-    if payload.target == TaskTarget.MOBILE and (\n        settings.mobile_provider == "ucoa"\n        or (settings.mobile_provider == "auto" and not settings.google_api_key)\n    ):
+    if payload.target == TaskTarget.MOBILE and (
+        settings.mobile_provider == "ucoa"
+        or (settings.mobile_provider == "auto" and not settings.google_api_key)
+    ):
         if not settings.ucoa_base_url:
             raise HTTPException(status_code=503, detail="UCOA mobile brain is not configured.")
     elif runtime.gemini_cua is None:
         raise HTTPException(status_code=503, detail="Computer-use runtime is not configured. Add GOOGLE_API_KEY or GEMINI_API_KEY to the deployed service.")
     budget = payload.budget_usd or settings.default_task_budget_usd
     if payload.target == TaskTarget.MOBILE:
-        if settings.mobile_provider == "gemini" and runtime.gemini_mobile is None:\n            raise HTTPException(status_code=503, detail="Mobile computer-use runtime is not configured.")\n        if settings.mobile_provider == "auto" and runtime.gemini_mobile is None and not settings.ucoa_base_url:
+        if settings.mobile_provider == "gemini" and runtime.gemini_mobile is None:
+            raise HTTPException(status_code=503, detail="Mobile computer-use runtime is not configured.")
+        if settings.mobile_provider == "auto" and runtime.gemini_mobile is None and not settings.ucoa_base_url:
             raise HTTPException(status_code=503, detail="Mobile computer-use runtime is not configured.")
         if not payload.mobile_session_id:
             raise HTTPException(status_code=400, detail="mobile_session_id is required for mobile tasks.")
