@@ -184,7 +184,7 @@ class AgentAccessibilityService : AccessibilityService() {
                 "go_back" -> performGlobalAction(GLOBAL_ACTION_BACK)
                 "take_screenshot" -> true
                 "list_apps" -> true
-                "type" -> typeText(command.optString("text"))
+                "type" -> typeText(command.optString("text"), command.optBoolean("press_enter", false))
                 "press_key" -> pressKey(command.optString("key"))
                 "scroll" -> scroll(command.optString("direction", "down"))
                 else -> false
@@ -251,7 +251,7 @@ class AgentAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun typeText(value: String): Boolean {
+    private fun typeText(value: String, pressEnter: Boolean): Boolean {
         val root = rootInActiveWindow ?: return false
         var target: AccessibilityNodeInfo? = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         if (target == null || !target.isEditable) {
@@ -268,7 +268,12 @@ class AgentAccessibilityService : AccessibilityService() {
                 value
             )
         }
-        val ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        var ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        if (ok && pressEnter) {
+            ok = target.performAction(
+                AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
+            )
+        }
         if (target !== root) target.recycle()
         root.recycle()
         return ok
