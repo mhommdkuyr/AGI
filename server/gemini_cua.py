@@ -441,16 +441,18 @@ class GeminiComputerUse:
                 ),
             }
         ]
-        if observation.get("needs_vision"):
-            screenshot = session.page.screenshot(type="png")
-            som = render_set_of_mark(screenshot, observation)
-            content.append(
-                {
-                    "type": "image",
-                    "data": base64.b64encode(som).decode("utf-8"),
-                    "mime_type": "image/png",
-                }
-            )
+        # Gemini Computer Use requires an image in every function_result.
+        # Keep the image economical: only DOM-derived interactive regions are marked,
+        # and the raw screenshot is never sent to the model.
+        screenshot = session.page.screenshot(type="png")
+        som = render_set_of_mark(screenshot, observation)
+        content.append(
+            {
+                "type": "image",
+                "data": base64.b64encode(som).decode("utf-8"),
+                "mime_type": "image/png",
+            }
+        )
         return {
             "type": "function_result",
             "name": name,
