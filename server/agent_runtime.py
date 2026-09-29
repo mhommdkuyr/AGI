@@ -40,7 +40,10 @@ class AgentRuntime:
     ) -> TaskRecord:
         was_waiting_human = task.status == TaskStatus.WAITING_HUMAN
         effective_complexity = classify_complexity(task.prompt) if complexity == "auto" else complexity
-        use_ucoa_mobile = task.target.value == "mobile" and (\n            self.settings.mobile_provider == "ucoa"\n            or (self.settings.mobile_provider == "auto" and self.settings.google_api_key is None)\n        )
+        use_ucoa_mobile = task.target.value == "mobile" and (
+            self.settings.mobile_provider == "ucoa"
+            or (self.settings.mobile_provider == "auto" and self.settings.google_api_key is None)
+        )
         choice = self.router.choose(
             budget_usd=task.budget_usd,
             complexity=effective_complexity,
@@ -88,7 +91,12 @@ class AgentRuntime:
 
             remaining_budget = max(task.budget_usd - planner_cost, 0.0)
             if task.target.value == "mobile":
-                mobile_runtime = (\n                    self.ucoa_mobile\n                    if self.settings.mobile_provider == "ucoa"\n                    or (self.settings.mobile_provider == "auto" and self.settings.google_api_key is None)\n                    else self.gemini_mobile\n                )
+                mobile_runtime = (
+                    self.ucoa_mobile
+                    if self.settings.mobile_provider == "ucoa"
+                    or (self.settings.mobile_provider == "auto" and self.settings.google_api_key is None)
+                    else self.gemini_mobile
+                )
                 if mobile_runtime is None:
                     raise RuntimeError("Mobile runtime is not configured.")
                 final_text, meta = await asyncio.to_thread(
