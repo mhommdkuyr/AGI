@@ -53,6 +53,23 @@ class MobileApi(private val baseUrl: String) {
     fun pollCommand(sessionId: String): JSONObject? =
         request("GET", "/v1/mobile/sessions/$sessionId/command")?.let(::JSONObject)
 
+    fun fetchScreen(taskId: String): ByteArray? {
+        val url = URI.create(baseUrl.trimEnd('/') + "/v1/tasks/" + taskId + "/screen").toURL()
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 4000
+            readTimeout = 8000
+            doInput = true
+        }
+        return connection.use {
+            when (it.responseCode) {
+                200 -> it.inputStream.use { stream -> stream.readBytes() }
+                404, 409, 204 -> null
+                else -> throw IllegalStateException("Screen HTTP " + it.responseCode)
+            }
+        }
+    }
+
     fun postCommandResult(sessionId: String, result: JSONObject, screenshotB64: String?): JSONObject {
         val payload = JSONObject().put("result", result)
         if (screenshotB64 != null) payload.put("screenshot_b64", screenshotB64)
