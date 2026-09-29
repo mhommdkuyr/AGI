@@ -42,18 +42,30 @@ class AgentRuntime:
             if self.gemini_cua is None:
                 raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
 
-            enriched_prompt = await self._make_agent_prompt(task.prompt, choice)
+            enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            if planner_cost >= task.budget_usd:
+                task.status = TaskStatus.FAILED
+                task.error = "Planning cost exhausted the task budget."
+                task.spent_usd = planner_cost
+                ledger.settle(task.id, task.spent_usd)
+                task.touch()
+                if on_update:
+                    await on_update(task)
+                return task
+
+            remaining_budget = max(task.budget_usd - planner_cost, 0.0)
             final_text, meta = await asyncio.to_thread(
                 self.gemini_cua.run,
                 str(task.id),
                 enriched_prompt,
                 self.settings.default_max_steps,
-                task.budget_usd,
+                remaining_budget,
                 resume=was_waiting_human,
                 user_confirmed=user_confirmed,
             )
             task.steps = int(meta.get("turns", 0))
-            task.spent_usd = float(meta.get("provider_cost_usd", 0.0) or 0.0)
+            executor_cost = float(meta.get("provider_cost_usd", 0.0) or 0.0)
+            task.spent_usd = planner_cost + executor_cost
             usage_known = bool(meta.get("usage_known"))
             task.metering_state = "measured" if usage_known else "unknown"
 
@@ -112,9 +124,9 @@ class AgentRuntime:
         task.touch()
         return await self.run(task, "auto", user_confirmed=user_confirmed)
 
-    async def _make_agent_prompt(self, task_prompt: str, choice: ModelChoice) -> str:
-        if choice.planner_model == choice.executor_model:
-            return task_prompt
+    async def _make_agent_prompt(self, task_prompt: str, choice: ModelChoice) -> tuple[str, float]:
+        if not choice.planner_model or choice.planner_model == choice.executor_model:
+            return task_prompt, 0.0
 
         try:
             from google import genai
@@ -132,10 +144,24 @@ class AgentRuntime:
                 input=planning_prompt,
             )
             plan = getattr(interaction, "output_text", None) or str(interaction)
-            return f"{task_prompt}\n\nInternal execution plan:\n{plan}"
+            raw_usage = getattr(interaction, "usage", None)
+            if raw_usage is None:
+                # Unknown planning usage means we cannot enforce a safe paid budget.
+                return task_prompt, float("inf")
+            def _value(name: str) -> int:
+                if isinstance(raw_usage, dict):
+                    return int(raw_usage.get(name, 0) or 0)
+                return int(getattr(raw_usage, name, 0) or 0)
+            from .costs import Usage, estimate_token_cost
+            usage = Usage(
+                _value("total_input_tokens") or _value("input_tokens"),
+                _value("total_output_tokens") or _value("output_tokens"),
+            )
+            cost = estimate_token_cost(choice.planner_model, usage)
+            return f"{task_prompt}\n\nInternal execution plan:\n{plan}", cost
         except Exception:
             # Planning enhancement must never make the core executor unusable.
-            return task_prompt
+            return task_prompt, 0.0
 
 
 runtime = AgentRuntime(Settings())
