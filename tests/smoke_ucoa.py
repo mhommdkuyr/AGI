@@ -6,7 +6,7 @@ import os
 import urllib.request
 
 
-BASE = os.getenv("UCOA_BASE_URL", "https://ucoa-agent-brain-69bo.onrender.com").rstrip("/")
+BASE = os.getenv("UCOA_BASE_URL", "https://ucoa-agent-brain-agi-control.onrender.com").rstrip("/")
 TOKEN = os.getenv("UCOA_API_TOKEN", "").strip()
 
 
