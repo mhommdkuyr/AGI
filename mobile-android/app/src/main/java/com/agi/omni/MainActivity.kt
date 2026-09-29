@@ -142,7 +142,7 @@ class MainActivity : Activity() {
             setText(prefs.getString("server_url", "http://10.0.2.2:8000"))
             hint = "عنوان خادم الوكيل"
             setTextColor(Color.WHITE)
-            hintTextColor = Color.GRAY
+            setHintTextColor(Color.GRAY)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Color.rgb(10, 13, 18))
