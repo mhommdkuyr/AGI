@@ -45,9 +45,10 @@ payload = {
     "foreground_package": "com.android.launcher",
 }
 body = request("POST", "/v1/agent/control-step", payload)
-assert body.get("action") == "open_app_by_name", body
-assert (body.get("params") or {}).get("app_name") == "settings", body
-assert body.get("provider") in {"deterministic-target-gate", "ucoa-resilient-fallback", "repair"} or str(body.get("provider","")).startswith("deterministic"), body
+result = body.get("result") if isinstance(body.get("result"), dict) else body
+assert result.get("action") == "open_app_by_name", body
+assert (result.get("params") or {}).get("app_name") == "settings", body
+assert str(result.get("provider", "")).startswith("deterministic"), body
 
 print(
     json.dumps(
