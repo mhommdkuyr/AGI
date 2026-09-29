@@ -151,79 +151,51 @@ jobs:
             adb shell pidof com.agi.omni
             adb shell dumpsys activity activities | grep -E "com\.agi\.omni/.MainActivity|com\.agi\.omni"
 
-            python - <<'PY'
-            import re
-            import subprocess
-            import time
+            SID=""
+            for i in $(seq 1 30); do
+              SID=$(adb shell run-as com.agi.omni cat shared_prefs/agent.xml 2>/dev/null | sed -n 's/.*name="session_id">\\([^<]*\\)<\\/string>.*/\\1/p' | tr -d '\\r')
+              if [ -n "$SID" ]; then
+                echo "MOBILE_SESSION_ID $SID"
+                break
+              fi
+              sleep 1
+            done
+            if [ -z "$SID" ]; then
+              echo "Android app did not persist a mobile session id" >&2
+              exit 1
+            fi
 
-            path = "shared_prefs/agent.xml"
-            for _ in range(30):
-                try:
-                    text = subprocess.check_output(
-                        ["adb", "shell", "run-as", "com.agi.omni", "cat", path],
-                        text=True,
-                    )
-                    match = re.search(r'<string name="session_id">([^<]+)</string>', text)
-                    if match:
-                        sid = match.group(1)
-                        print("MOBILE_SESSION_ID", sid)
-                        open("/tmp/mobile-session-id", "w").write(sid)
-                        break
-                except Exception:
-                    pass
-                time.sleep(1)
-            else:
-                raise SystemExit("Android app did not persist a mobile session id")
-            PY
+            PAYLOAD='{"prompt":"افتح تطبيق الإعدادات","target":"mobile","mobile_session_id":"'$SID'","budget_usd":0.20,"complexity":"normal"}'
+            CREATED=$(curl -fsS -X POST http://127.0.0.1:8000/v1/tasks -H 'Content-Type: application/json' --data "$PAYLOAD")
+            TASK_ID=$(printf '%s' "$CREATED" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+            echo "AGI_TASK_ID $TASK_ID"
 
-            python - <<'PY'
-            import json
-            import time
-            from urllib.request import Request, urlopen
+            TERMINAL=""
+            for i in $(seq 1 50); do
+              TERMINAL=$(curl -fsS "http://127.0.0.1:8000/v1/tasks/$TASK_ID")
+              STATUS=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+              MODEL=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin).get("model",""))')
+              ERROR=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin).get("error",""))')
+              echo "AGI_TASK_STATUS $STATUS model=$MODEL error=$ERROR"
+              if [ "$STATUS" = "succeeded" ] || [ "$STATUS" = "failed" ] || [ "$STATUS" = "cancelled" ]; then
+                break
+              fi
+              sleep 2
+            done
 
-            sid = open("/tmp/mobile-session-id").read().strip()
-            payload = {
-                "prompt": "افتح تطبيق الإعدادات",
-                "target": "mobile",
-                "mobile_session_id": sid,
-                "budget_usd": 0.20,
-                "complexity": "normal",
-            }
-            req = Request(
-                "http://127.0.0.1:8000/v1/tasks",
-                data=json.dumps(payload, ensure_ascii=False).encode(),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urlopen(req, timeout=20) as response:
-                created = json.loads(response.read().decode())
-            task_id = created["id"]
-            print("AGI_TASK_ID", task_id)
-
-            terminal = None
-            deadline = time.time() + 100
-            while time.time() < deadline:
-                with urlopen(
-                    f"http://127.0.0.1:8000/v1/tasks/{task_id}",
-                    timeout=20,
-                ) as response:
-                    terminal = json.loads(response.read().decode())
-                print(
-                    "AGI_TASK_STATUS",
-                    terminal["status"],
-                    terminal.get("error", ""),
-                    "model=",
-                    terminal.get("model"),
-                )
-                if terminal["status"] in {"succeeded", "failed", "cancelled"}:
-                    break
-                time.sleep(2)
-
-            assert terminal and terminal["status"] == "succeeded", terminal
-            assert terminal["model"] == "ucoa-cloud-brain", terminal
-            print("UCOA_BACKED_ANDROID_TASK_PASS", json.dumps(terminal, ensure_ascii=False))
-            PY
-
+            FINAL_STATUS=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+            FINAL_MODEL=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin).get("model",""))')
+            echo "$TERMINAL"
+            if [ "$FINAL_STATUS" != "succeeded" ]; then
+              echo "UCOA-backed Android task did not succeed" >&2
+              exit 1
+            fi
+            if [ "$FINAL_MODEL" != "ucoa-cloud-brain" ]; then
+              echo "Unexpected model: $FINAL_MODEL" >&2
+              exit 1
+            fi
+            echo "UCOA_BACKED_ANDROID_TASK_PASS"
+            
             # Confirm the Android agent actually changed the foreground package.
             adb shell dumpsys activity activities | grep -F "com.android.settings"
             echo "AGI_UCOA_ANDROID_E2E_PASS"
