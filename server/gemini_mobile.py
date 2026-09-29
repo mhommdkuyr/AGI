@@ -295,6 +295,18 @@ class GeminiMobileComputerUse:
                 raw_args = getattr(call, "arguments", {}) or {}
                 args = dict(raw_args) if not isinstance(raw_args, dict) else dict(raw_args)
                 safety = args.get("safety_decision")
+                if isinstance(safety, dict) and safety.get("decision") in {"blocked", "block"}:
+                    session.status = "failed"
+                    session.handoff_reason = HandoffReason.UNKNOWN_BLOCK
+                    return "", self._meta(
+                        session,
+                        "failed",
+                        turn + 1,
+                        total_usage,
+                        usage_known,
+                        reason=HandoffReason.UNKNOWN_BLOCK.value,
+                        error="Gemini safety policy blocked the requested mobile action.",
+                    )
                 if (
                     isinstance(safety, dict)
                     and safety.get("decision") == "require_confirmation"
