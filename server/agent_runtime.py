@@ -10,7 +10,7 @@ from .gemini_cua import GeminiComputerUse
 from .guardrails import classify_handoff, looks_like_loop
 from .model_router import ModelChoice, ModelRouter
 from .usage import ledger
-from .verifier import verify_terminal
+from .verifier import verify_browser_evidence
 
 
 class AgentRuntime:
@@ -100,10 +100,18 @@ class AgentRuntime:
                     task.handoff_reason = handoff
                     task.error = "Human interaction is required before the task can continue."
                 else:
-                    # Native computer-use history is the source of terminal evidence in this MVP.
-                    # A domain-specific verifier will replace this generic gate in production.
-                    task.status = TaskStatus.SUCCEEDED
-                    task.result = final_text
+                    verification = verify_browser_evidence(
+                        prompt=task.prompt,
+                        final_text=final_text,
+                        final_url=str(meta.get("final_url") or ""),
+                        final_title=str(meta.get("final_title") or ""),
+                    )
+                    if not verification.passed:
+                        task.status = TaskStatus.FAILED
+                        task.error = verification.reason
+                    else:
+                        task.status = TaskStatus.SUCCEEDED
+                        task.result = final_text
                     if looks_like_loop(final_text):
                         task.status = TaskStatus.FAILED
                         task.error = "Loop-like terminal state detected."
