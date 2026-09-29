@@ -161,6 +161,25 @@ class MainActivity : Activity() {
             "تنبيه الخصوصية: خدمة Accessibility تقرأ عناصر الواجهة وتنفّذ أوامر المستخدم على الجهاز، وترسل بيانات الواجهة ولقطات الشاشة اللازمة إلى خادم الوكيل. هذه النسخة مخصصة للـPoC والاختبار الداخلي؛ لا تُدرج في Google Play كأداة وصول عامة دون استيفاء سياسة AccessibilityService.",
             12f, Color.rgb(154, 164, 178)
         ).apply { setPadding(0, dp(16), 0, 0) })
+
+        // Best-effort session initialization; submitTask/AccessibilityService still retry later.
+        ensureSessionOnStartup()
+    }
+
+    private fun ensureSessionOnStartup() {
+        val url = serverUrl.text?.toString()?.trim().orEmpty().ifBlank { "http://10.0.2.2:8000" }
+        executor.execute {
+            try {
+                val api = MobileApi(url)
+                if (prefs.getString("session_id", null).isNullOrBlank()) {
+                    val id = api.createSession(android.os.Build.MODEL)
+                    prefs.edit().putString("session_id", id).apply()
+                }
+                runOnUiThread { status.text = "الجلسة جاهزة — فعّل خدمة التحكم ثم ابدأ المهمة." }
+            } catch (_: Exception) {
+                // Connectivity may become available later; the normal submit path retries.
+            }
+        }
     }
 
     private fun submitTask() {
