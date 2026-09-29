@@ -29,6 +29,7 @@ class AgentRuntime:
             settings.ucoa_base_url,
             settings.ucoa_api_token,
             settings.ucoa_timeout_s,
+            settings.ucoa_control_path,
         )
 
     async def run(
