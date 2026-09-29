@@ -10,9 +10,9 @@ class ModelRate:
 
 
 RATES: dict[str, ModelRate] = {
+    # Standard paid pricing currently published by Google.
     "gemini-3.8-flash": ModelRate(0.75, 3.75),
-    # Planning rates are kept configurable until the production pricing catalog is
-    # versioned from the provider's current pricing feed.
+    "gemini-3.1-pro-preview": ModelRate(2.00, 12.00),
 }
 
 

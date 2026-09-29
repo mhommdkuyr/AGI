@@ -7,10 +7,12 @@ from .complexity import classify_complexity
 from .config import Settings
 from .domain import HandoffReason, TaskRecord, TaskStatus
 from .gemini_cua import GeminiComputerUse
+from .gemini_mobile import GeminiMobileComputerUse
+from .ucoa_mobile import UcoaMobileComputerUse
 from .guardrails import classify_handoff, looks_like_loop
 from .model_router import ModelChoice, ModelRouter
 from .usage import ledger
-from .verifier import verify_terminal
+from .verifier import verify_browser_evidence
 
 
 class AgentRuntime:
@@ -18,6 +20,17 @@ class AgentRuntime:
         self.settings = settings
         self.router = ModelRouter(settings)
         self.gemini_cua = GeminiComputerUse(settings.google_api_key) if settings.google_api_key else None
+        self.gemini_mobile = (
+            GeminiMobileComputerUse(settings.google_api_key, settings.primary_model)
+            if settings.google_api_key
+            else None
+        )
+        self.ucoa_mobile = UcoaMobileComputerUse(
+            settings.ucoa_base_url,
+            settings.ucoa_api_token,
+            settings.ucoa_timeout_s,
+            settings.ucoa_control_path,
+        )
 
     async def run(
         self,
@@ -28,32 +41,88 @@ class AgentRuntime:
     ) -> TaskRecord:
         was_waiting_human = task.status == TaskStatus.WAITING_HUMAN
         effective_complexity = classify_complexity(task.prompt) if complexity == "auto" else complexity
+        use_ucoa_mobile = task.target.value == "mobile" and (
+            self.settings.mobile_provider == "ucoa"
+            or (self.settings.mobile_provider == "auto" and self.settings.google_api_key is None)
+        )
         choice = self.router.choose(
             budget_usd=task.budget_usd,
             complexity=effective_complexity,
         )
-        task.model = choice.executor_model
+        task.model = "ucoa-cloud-brain" if use_ucoa_mobile else choice.executor_model
         task.status = TaskStatus.RUNNING
         task.touch()
         if on_update:
             await on_update(task)
 
         try:
-            if self.gemini_cua is None:
-                raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
+            if task.target.value == "mobile":
+                if not task.mobile_session_id:
+                    raise RuntimeError("Mobile computer-use runtime requires a configured mobile session.")
+                if self.settings.mobile_provider == "ucoa" or (self.settings.mobile_provider == "auto" and self.settings.google_api_key is None):
+                    enriched_prompt, planner_cost = task.prompt, 0.0
+                else:
+                    if self.gemini_cua is None or self.gemini_mobile is None:
+                        raise RuntimeError("GOOGLE_API_KEY is required for the Gemini mobile runtime.")
+                    enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            else:
+                if self.gemini_cua is None:
+                    raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
+                enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            if planner_cost == float("inf"):
+                task.status = TaskStatus.FAILED
+                task.metering_state = "unknown"
+                task.error = "Planner usage was not observable; paid execution is stopped."
+                task.spent_usd = 0.0
+                ledger.settle(task.id, task.spent_usd)
+                task.touch()
+                if on_update:
+                    await on_update(task)
+                return task
+            if planner_cost >= task.budget_usd:
+                task.status = TaskStatus.FAILED
+                task.metering_state = "measured"
+                task.error = "Planning cost exhausted the task budget."
+                task.spent_usd = planner_cost
+                ledger.settle(task.id, task.spent_usd)
+                task.touch()
+                if on_update:
+                    await on_update(task)
+                return task
 
-            enriched_prompt = await self._make_agent_prompt(task.prompt, choice)
-            final_text, meta = await asyncio.to_thread(
-                self.gemini_cua.run,
-                str(task.id),
-                enriched_prompt,
-                self.settings.default_max_steps,
-                task.budget_usd,
-                resume=was_waiting_human,
-                user_confirmed=user_confirmed,
-            )
+            remaining_budget = max(task.budget_usd - planner_cost, 0.0)
+            if task.target.value == "mobile":
+                mobile_runtime = (
+                    self.ucoa_mobile
+                    if self.settings.mobile_provider == "ucoa"
+                    or (self.settings.mobile_provider == "auto" and self.settings.google_api_key is None)
+                    else self.gemini_mobile
+                )
+                if mobile_runtime is None:
+                    raise RuntimeError("Mobile runtime is not configured.")
+                final_text, meta = await asyncio.to_thread(
+                    mobile_runtime.run,
+                    str(task.id),
+                    enriched_prompt,
+                    self.settings.default_max_steps,
+                    remaining_budget,
+                    mobile_session_id=task.mobile_session_id,
+                    resume=was_waiting_human,
+                    user_confirmed=user_confirmed,
+                )
+            else:
+                final_text, meta = await asyncio.to_thread(
+                    self.gemini_cua.run,
+                    str(task.id),
+                    enriched_prompt,
+                    self.settings.default_max_steps,
+                    remaining_budget,
+                    resume=was_waiting_human,
+                    user_confirmed=user_confirmed,
+                )
             task.steps = int(meta.get("turns", 0))
-            task.spent_usd = float(meta.get("provider_cost_usd", 0.0) or 0.0)
+            executor_cost = float(meta.get("provider_cost_usd", 0.0) or 0.0)
+            task.spent_usd = planner_cost + executor_cost
             usage_known = bool(meta.get("usage_known"))
             task.metering_state = "measured" if usage_known else "unknown"
 
@@ -77,10 +146,27 @@ class AgentRuntime:
                     task.handoff_reason = handoff
                     task.error = "Human interaction is required before the task can continue."
                 else:
-                    # Native computer-use history is the source of terminal evidence in this MVP.
-                    # A domain-specific verifier will replace this generic gate in production.
-                    task.status = TaskStatus.SUCCEEDED
-                    task.result = final_text
+                    if task.target.value == "mobile":
+                        from .verifier import verify_mobile_evidence
+                        verification = verify_mobile_evidence(
+                            prompt=task.prompt,
+                            final_text=final_text,
+                            package_name=str(meta.get("package_name") or ""),
+                            activity_name=str(meta.get("activity_name") or ""),
+                        )
+                    else:
+                        verification = verify_browser_evidence(
+                            prompt=task.prompt,
+                            final_text=final_text,
+                            final_url=str(meta.get("final_url") or ""),
+                            final_title=str(meta.get("final_title") or ""),
+                        )
+                    if not verification.passed:
+                        task.status = TaskStatus.FAILED
+                        task.error = verification.reason
+                    else:
+                        task.status = TaskStatus.SUCCEEDED
+                        task.result = final_text
                     if looks_like_loop(final_text):
                         task.status = TaskStatus.FAILED
                         task.error = "Loop-like terminal state detected."
@@ -112,9 +198,9 @@ class AgentRuntime:
         task.touch()
         return await self.run(task, "auto", user_confirmed=user_confirmed)
 
-    async def _make_agent_prompt(self, task_prompt: str, choice: ModelChoice) -> str:
-        if choice.planner_model == choice.executor_model:
-            return task_prompt
+    async def _make_agent_prompt(self, task_prompt: str, choice: ModelChoice) -> tuple[str, float]:
+        if not choice.planner_model or choice.planner_model == choice.executor_model:
+            return task_prompt, 0.0
 
         try:
             from google import genai
@@ -132,10 +218,24 @@ class AgentRuntime:
                 input=planning_prompt,
             )
             plan = getattr(interaction, "output_text", None) or str(interaction)
-            return f"{task_prompt}\n\nInternal execution plan:\n{plan}"
+            raw_usage = getattr(interaction, "usage", None)
+            if raw_usage is None:
+                # Unknown planning usage means we cannot enforce a safe paid budget.
+                return task_prompt, float("inf")
+            def _value(name: str) -> int:
+                if isinstance(raw_usage, dict):
+                    return int(raw_usage.get(name, 0) or 0)
+                return int(getattr(raw_usage, name, 0) or 0)
+            from .costs import Usage, estimate_token_cost
+            usage = Usage(
+                _value("total_input_tokens") or _value("input_tokens"),
+                _value("total_output_tokens") or _value("output_tokens"),
+            )
+            cost = estimate_token_cost(choice.planner_model, usage)
+            return f"{task_prompt}\n\nInternal execution plan:\n{plan}", cost
         except Exception:
             # Planning enhancement must never make the core executor unusable.
-            return task_prompt
+            return task_prompt, 0.0
 
 
 runtime = AgentRuntime(Settings())

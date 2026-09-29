@@ -10,16 +10,26 @@ def test_gemini_cost_estimate():
     assert cost == 4.5
 
 
-def test_default_browser_router():
+def test_planner_cost_estimate():
+    cost = estimate_token_cost("gemini-3.1-pro-preview", Usage(1_000_000, 1_000_000))
+    assert cost == 14.0
+
+
+def test_default_browser_router_skips_planner_for_normal_tasks():
     choice = ModelRouter(Settings()).choose(budget_usd=0.75)
     assert choice.executor_model == "gemini-3.8-flash"
-    assert choice.planner_model == "gemini-3.1-pro-preview"
+    assert choice.planner_model is None
 
 
 def test_hard_router_adds_planning_pass():
     choice = ModelRouter(Settings()).choose(budget_usd=0.75, complexity="hard")
     assert choice.executor_model == "gemini-3.8-flash"
     assert choice.planner_model == "gemini-3.1-pro-preview"
+
+
+def test_tight_hard_budget_uses_executor_as_planner():
+    choice = ModelRouter(Settings()).choose(budget_usd=0.10, complexity="hard")
+    assert choice.planner_model == "gemini-3.8-flash"
 
 
 def test_auth_detection():

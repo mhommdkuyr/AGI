@@ -10,6 +10,11 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class TaskTarget(StrEnum):
+    BROWSER = "browser"
+    MOBILE = "mobile"
+
+
 class TaskStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -36,6 +41,8 @@ class TaskRecord:
     reserved_usd: float = 0.0
     spent_usd: float = 0.0
     metering_state: str = "unknown"
+    target: TaskTarget = TaskTarget.BROWSER
+    mobile_session_id: str | None = None
     model: str | None = None
     steps: int = 0
     failure_count: int = 0
@@ -51,8 +58,18 @@ class TaskRecord:
         self.updated_at = self.updated_at or now
 
     @classmethod
-    def new(cls, user_id: str, prompt: str, budget_usd: float) -> "TaskRecord":
-        return cls(uuid4(), user_id, prompt, TaskStatus.QUEUED, budget_usd)
+    def new(
+        cls,
+        user_id: str,
+        prompt: str,
+        budget_usd: float,
+        target: TaskTarget = TaskTarget.BROWSER,
+        mobile_session_id: str | None = None,
+    ) -> "TaskRecord":
+        task = cls(uuid4(), user_id, prompt, TaskStatus.QUEUED, budget_usd)
+        task.target = target
+        task.mobile_session_id = mobile_session_id
+        return task
 
     def touch(self) -> None:
         self.updated_at = utc_now()

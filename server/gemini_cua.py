@@ -11,6 +11,7 @@ from typing import Any
 
 from .costs import Usage, estimate_token_cost
 from .domain import HandoffReason
+from .observation import collect_dom_observation, observation_text, render_set_of_mark
 
 
 AUTH_TEXT = re.compile(
@@ -364,19 +365,12 @@ class GeminiComputerUse:
             if result.get("status") == "waiting_human":
                 waiting = True
             results.append(
-                {
-                    "type": "function_result",
-                    "name": str(pending["name"]),
-                    "call_id": str(pending["arguments"].get("_call_id", "")),
-                    "result": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False)},
-                        {
-                            "type": "image",
-                            "data": base64.b64encode(session.page.screenshot(type="png")).decode("utf-8"),
-                            "mime_type": "image/png",
-                        },
-                    ],
-                }
+                self._function_result(
+                    session,
+                    str(pending["name"]),
+                    str(pending["arguments"].get("_call_id", "")),
+                    result,
+                )
             )
             if waiting:
                 return results, True
@@ -398,34 +392,80 @@ class GeminiComputerUse:
                 break
 
             results.append(
-                {
-                    "type": "function_result",
-                    "name": name,
-                    "call_id": getattr(call, "id", ""),
-                    "result": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False)},
-                        {
-                            "type": "image",
-                            "data": base64.b64encode(session.page.screenshot(type="png")).decode("utf-8"),
-                            "mime_type": "image/png",
-                        },
-                    ],
-                }
+                self._function_result(
+                    session,
+                    name,
+                    str(getattr(call, "id", "") or ""),
+                    result,
+                )
             )
         return results, waiting
 
-    def _create_initial_interaction(self, client: Any, prompt: str, session: GeminiBrowserSession) -> Any:
-        first = session.page.screenshot(type="png")
-        return client.interactions.create(
-            model=self.MODEL,
-            input=[
-                {"type": "text", "text": prompt},
+    def _observation_parts(self, page: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        observation = collect_dom_observation(page)
+        parts: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": observation_text(observation),
+            }
+        ]
+        if observation.get("needs_vision"):
+            screenshot = page.screenshot(type="png")
+            som = render_set_of_mark(screenshot, observation)
+            parts.append(
                 {
                     "type": "image",
-                    "data": base64.b64encode(first).decode("utf-8"),
+                    "data": base64.b64encode(som).decode("utf-8"),
                     "mime_type": "image/png",
-                },
-            ],
+                }
+            )
+        return observation, parts
+
+    @staticmethod
+    def _function_result(
+        session: GeminiBrowserSession,
+        name: str,
+        call_id: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        observation = collect_dom_observation(session.page)
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "action_result": result,
+                        "observation": observation,
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        ]
+        # Gemini Computer Use requires an image in every function_result.
+        # Keep the image economical: only DOM-derived interactive regions are marked,
+        # and the raw screenshot is never sent to the model.
+        screenshot = session.page.screenshot(type="png")
+        som = render_set_of_mark(screenshot, observation)
+        content.append(
+            {
+                "type": "image",
+                "data": base64.b64encode(som).decode("utf-8"),
+                "mime_type": "image/png",
+            }
+        )
+        return {
+            "type": "function_result",
+            "name": name,
+            "call_id": call_id,
+            "result": content,
+        }
+
+    def _create_initial_interaction(self, client: Any, prompt: str, session: GeminiBrowserSession) -> Any:
+        _, observation_parts = self._observation_parts(session.page)
+        input_parts = [{"type": "text", "text": prompt}, *observation_parts]
+        return client.interactions.create(
+            model=self.MODEL,
+            input=input_parts,
             tools=[self._tool()],
         )
 

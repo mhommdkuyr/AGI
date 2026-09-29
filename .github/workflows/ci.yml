@@ -5,12 +5,25 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      run_live_gemini:
+        description: "Run the paid live Gemini smoke test"
+        required: true
+        default: false
+        type: boolean
   issue_comment:
     types: [created]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
@@ -22,9 +35,167 @@ jobs:
       - run: pytest -q
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
-      - name: Live Gemini Computer Use smoke test
-        if: ${{ env.GOOGLE_API_KEY != '' || env.GEMINI_API_KEY != '' }}
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Live Gemini Computer Use smoke test (manual only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_gemini == true && (env.GOOGLE_API_KEY != '' || env.GEMINI_API_KEY != '') }}
         run: python tests/smoke_gemini.py
+
+  ucoa-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UCOA_BASE_URL: https://ucoa-agent-brain-agi-control.onrender.com
+      UCOA_API_TOKEN: ${{ secrets.UCOA_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Live UCOA provider smoke (no AGI Gemini)
+        run: python tests/smoke_ucoa.py
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run actions/checkout@v4
+        uses: actions/checkout@v4
+
+      - name: Set up Python for local API
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install local API dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Start UCOA-backed AGI API (Gemini disabled)
+        env:
+          MOBILE_PROVIDER: ucoa
+          UCOA_BASE_URL: https://ucoa-agent-brain-agi-control.onrender.com
+          UCOA_API_TOKEN: ${{ secrets.UCOA_API_TOKEN }}
+          UCOA_CONTROL_PATH: /v1/agent/control-step
+          GOOGLE_API_KEY: ""
+          GEMINI_API_KEY: ""
+        run: |
+          nohup python -m uvicorn server.main:app --host 0.0.0.0 --port 8000 >/tmp/agi-ucoa-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health >/tmp/agi-health.json; then
+              cat /tmp/agi-health.json
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Inspect preinstalled Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME"
+          ls -1 "$ANDROID_HOME/platforms" | tail -n 10 || true
+          ls -1 "$ANDROID_HOME/build-tools" | tail -n 10 || true
+
+      - name: Set up Gradle 9.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Build Android PoC
+        working-directory: mobile-android
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload installable Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: omni-mobile-agent-debug-apk
+          path: mobile-android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enable KVM for Android Emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Android install, UCOA-backed execution and launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          working-directory: ./mobile-android
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          enable-hw-keyboard: true
+          script: |
+            set -eu
+
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+            # Test-only accessibility enablement inside the emulator.
+            adb shell settings put secure enabled_accessibility_services com.agi.omni/com.agi.omni.AgentAccessibilityService
+            adb shell settings put secure accessibility_enabled 1
+
+            adb shell am start -n com.agi.omni/.MainActivity
+            sleep 8
+            adb shell pidof com.agi.omni
+            adb shell dumpsys activity activities | grep -E "com\.agi\.omni/.MainActivity|com\.agi\.omni"
+
+            SID=""
+            for i in $(seq 1 30); do
+              SID=$(adb shell run-as com.agi.omni cat shared_prefs/agent.xml 2>/dev/null | grep -o 'name="session_id">[^<]*' | sed 's/.*>//' | tr -d '\\r')
+              if [ -n "$SID" ]; then
+                echo "MOBILE_SESSION_ID $SID"
+                break
+              fi
+              sleep 1
+            done
+            if [ -z "$SID" ]; then
+              echo "Android app did not persist a mobile session id" >&2
+              exit 1
+            fi
+
+            PAYLOAD='{"prompt":"افتح تطبيق الإعدادات","target":"mobile","mobile_session_id":"'$SID'","budget_usd":0.20,"complexity":"normal"}'
+            CREATED=$(curl -fsS -X POST http://127.0.0.1:8000/v1/tasks -H 'Content-Type: application/json' --data "$PAYLOAD")
+            TASK_ID=$(printf '%s' "$CREATED" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+            echo "AGI_TASK_ID $TASK_ID"
+
+            TERMINAL=""
+            for i in $(seq 1 50); do
+              TERMINAL=$(curl -fsS "http://127.0.0.1:8000/v1/tasks/$TASK_ID")
+              STATUS=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+              MODEL=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin).get("model",""))')
+              ERROR=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin).get("error",""))')
+              echo "AGI_TASK_STATUS $STATUS model=$MODEL error=$ERROR"
+              if [ "$STATUS" = "succeeded" ] || [ "$STATUS" = "failed" ] || [ "$STATUS" = "cancelled" ]; then
+                break
+              fi
+              sleep 2
+            done
+
+            FINAL_STATUS=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+            FINAL_MODEL=$(printf '%s' "$TERMINAL" | python -c 'import json,sys; print(json.load(sys.stdin).get("model",""))')
+            echo "$TERMINAL"
+            if [ "$FINAL_STATUS" != "succeeded" ]; then
+              echo "UCOA-backed Android task did not succeed" >&2
+              exit 1
+            fi
+            if [ "$FINAL_MODEL" != "ucoa-cloud-brain" ]; then
+              echo "Unexpected model: $FINAL_MODEL" >&2
+              exit 1
+            fi
+            echo "UCOA_BACKED_ANDROID_TASK_PASS"
+            
+            # Confirm the Android agent actually changed the foreground package.
+            adb shell dumpsys activity activities | grep -F "com.android.settings"
+            echo "AGI_UCOA_ANDROID_E2E_PASS"

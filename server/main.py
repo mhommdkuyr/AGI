@@ -11,8 +11,18 @@ from fastapi.staticfiles import StaticFiles
 
 from .agent_runtime import runtime
 from .config import settings
-from .domain import TaskRecord, TaskStatus
-from .schemas import HealthResponse, HumanInput, ResumeRequest, TaskCreate, TaskResponse
+from .domain import TaskRecord, TaskStatus, TaskTarget
+from .mobile_bridge import mobile_bridge
+from .schemas import (
+    HealthResponse,
+    HumanInput,
+    MobileCommandResult,
+    MobileObservation,
+    MobileSessionCreate,
+    ResumeRequest,
+    TaskCreate,
+    TaskResponse,
+)
 from .store import store
 from .usage import ledger
 
@@ -59,6 +69,7 @@ async def startup() -> None:
 def to_response(task: TaskRecord) -> TaskResponse:
     return TaskResponse(
         id=str(task.id),
+        target=task.target,
         status=task.status,
         model=task.model,
         spent_usd=round(task.spent_usd, 6),
@@ -86,12 +97,95 @@ async def health():
     return HealthResponse(status="ok", version="0.1.0")
 
 
+@app.post("/v1/mobile/sessions")
+async def create_mobile_session(payload: MobileSessionCreate):
+    session = mobile_bridge.create_session(payload.device_name)
+    return {"id": session.id, "device_name": session.device_name, "status": session.status}
+
+
+@app.get("/v1/mobile/sessions/{session_id}")
+async def get_mobile_session(session_id: str):
+    session = mobile_bridge.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Mobile session not found.")
+    observation = session.observation or {}
+    return {
+        "id": session.id,
+        "device_name": session.device_name,
+        "status": session.status,
+        "interaction_id": session.interaction_id,
+        "handoff_reason": session.handoff_reason.value if session.handoff_reason else None,
+        "package_name": observation.get("package_name"),
+        "activity_name": observation.get("activity_name"),
+        "updated_at": session.updated_at,
+        "has_screenshot": bool(session.screenshot_b64),
+        "pending_confirmation": session.pending_confirmation is not None,
+    }
+
+
+@app.post("/v1/mobile/sessions/{session_id}/observation")
+async def update_mobile_observation(session_id: str, payload: MobileObservation):
+    session = mobile_bridge.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Mobile session not found.")
+    observation = mobile_bridge.sanitize_observation(payload.observation)
+    session.update_observation(observation, payload.screenshot_b64)
+    return {"ok": True, "status": session.status}
+
+
+@app.get("/v1/mobile/sessions/{session_id}/command")
+async def get_mobile_command(session_id: str):
+    session = mobile_bridge.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Mobile session not found.")
+    command = session.next_command()
+    if command is None:
+        return Response(status_code=204)
+    return command
+
+
+@app.post("/v1/mobile/sessions/{session_id}/command-result", response_model=MobileCommandResult)
+async def post_mobile_command_result(session_id: str, payload: MobileCommandResult):
+    session = mobile_bridge.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Mobile session not found.")
+    command_id = str(payload.result.get("command_id") or "")
+    if not command_id:
+        raise HTTPException(status_code=400, detail="command_id is required in result.")
+    session.set_result(command_id, dict(payload.result))
+    if payload.screenshot_b64 is not None:
+        session.screenshot_b64 = payload.screenshot_b64
+        session.updated_at = __import__("time").time()
+    return {"result": payload.result, "screenshot_b64": payload.screenshot_b64}
+
+
 @app.post("/v1/tasks", response_model=TaskResponse)
 async def create_task(payload: TaskCreate, background_tasks: BackgroundTasks):
-    if runtime.gemini_cua is None:
+    if payload.target == TaskTarget.MOBILE and (
+        settings.mobile_provider == "ucoa"
+        or (settings.mobile_provider == "auto" and not settings.google_api_key)
+    ):
+        if not settings.ucoa_base_url:
+            raise HTTPException(status_code=503, detail="UCOA mobile brain is not configured.")
+    elif runtime.gemini_cua is None:
         raise HTTPException(status_code=503, detail="Computer-use runtime is not configured. Add GOOGLE_API_KEY or GEMINI_API_KEY to the deployed service.")
     budget = payload.budget_usd or settings.default_task_budget_usd
-    task = TaskRecord.new(user_id="local-dev-user", prompt=payload.prompt, budget_usd=budget)
+    if payload.target == TaskTarget.MOBILE:
+        if settings.mobile_provider == "gemini" and runtime.gemini_mobile is None:
+            raise HTTPException(status_code=503, detail="Mobile computer-use runtime is not configured.")
+        if settings.mobile_provider == "auto" and runtime.gemini_mobile is None and not settings.ucoa_base_url:
+            raise HTTPException(status_code=503, detail="Mobile computer-use runtime is not configured.")
+        if not payload.mobile_session_id:
+            raise HTTPException(status_code=400, detail="mobile_session_id is required for mobile tasks.")
+        if mobile_bridge.get(payload.mobile_session_id) is None:
+            raise HTTPException(status_code=404, detail="Mobile session not found.")
+    task = TaskRecord.new(
+        user_id="local-dev-user",
+        prompt=payload.prompt,
+        budget_usd=budget,
+        target=payload.target,
+        mobile_session_id=payload.mobile_session_id,
+    )
     ledger.reserve(task.id, budget)
     task.reserved_usd = budget
     store.create(task)
@@ -112,14 +206,24 @@ async def task_screen(task_id: UUID):
     task = store.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    if runtime.gemini_cua is None:
-        raise HTTPException(status_code=503, detail="Computer-use runtime is not configured")
-    if not runtime.gemini_cua.has_session(str(task.id)):
-        raise HTTPException(status_code=409, detail="Browser session is not ready")
-    try:
-        image = await asyncio.to_thread(runtime.gemini_cua.screenshot, str(task.id))
-    except Exception as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if task.target == TaskTarget.MOBILE:
+        if not task.mobile_session_id:
+            raise HTTPException(status_code=409, detail="Task has no mobile session.")
+        mobile_session = mobile_bridge.get(task.mobile_session_id)
+        if mobile_session is None:
+            raise HTTPException(status_code=404, detail="Mobile session not found.")
+        image = mobile_bridge.screenshot_bytes(mobile_session)
+        if image is None:
+            raise HTTPException(status_code=409, detail="Mobile screenshot is not ready")
+    else:
+        if runtime.gemini_cua is None:
+            raise HTTPException(status_code=503, detail="Computer-use runtime is not configured")
+        if not runtime.gemini_cua.has_session(str(task.id)):
+            raise HTTPException(status_code=409, detail="Browser session is not ready")
+        try:
+            image = await asyncio.to_thread(runtime.gemini_cua.screenshot, str(task.id))
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(content=image, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
