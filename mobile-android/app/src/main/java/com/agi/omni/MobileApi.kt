@@ -14,18 +14,20 @@ class MobileApi(private val baseUrl: String) {
             doInput = true
             setRequestProperty("Accept", "application/json")
         }
-        return connection.use {
+        try {
             if (body != null) {
-                it.doOutput = true
-                it.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                it.outputStream.use { stream -> stream.write(body.toByteArray(Charsets.UTF_8)) }
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connection.outputStream.use { stream -> stream.write(body.toByteArray(Charsets.UTF_8)) }
             }
-            val code = it.responseCode
-            if (code == 204) return@use null
-            val stream = if (code in 200..299) it.inputStream else it.errorStream
+            val code = connection.responseCode
+            if (code == 204) return null
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val payload = stream?.bufferedReader(Charsets.UTF_8)?.use { reader -> reader.readText() }.orEmpty()
             if (code !in 200..299) throw IllegalStateException("HTTP $code: $payload")
-            payload
+            return payload
+        } finally {
+            connection.disconnect()
         }
     }
 
@@ -61,12 +63,14 @@ class MobileApi(private val baseUrl: String) {
             readTimeout = 8000
             doInput = true
         }
-        return connection.use {
-            when (it.responseCode) {
-                200 -> it.inputStream.use { stream -> stream.readBytes() }
+        try {
+            return when (connection.responseCode) {
+                200 -> connection.inputStream.use { stream -> stream.readBytes() }
                 404, 409, 204 -> null
-                else -> throw IllegalStateException("Screen HTTP " + it.responseCode)
+                else -> throw IllegalStateException("Screen HTTP " + connection.responseCode)
             }
+        } finally {
+            connection.disconnect()
         }
     }
 
