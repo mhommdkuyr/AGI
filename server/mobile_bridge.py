@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from .domain import HandoffReason
+
 
 @dataclass(slots=True)
 class MobileSession:
@@ -17,6 +19,10 @@ class MobileSession:
     updated_at: float = field(default_factory=time.time)
     observation: dict[str, Any] | None = None
     screenshot_b64: str | None = None
+    interaction_id: str | None = None
+    status: str = "waiting_device"
+    handoff_reason: HandoffReason | None = None
+    pending_confirmation: dict[str, Any] | None = None
     commands: list[dict[str, Any]] = field(default_factory=list)
     results: dict[str, dict[str, Any]] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -33,6 +39,7 @@ class MobileSession:
         with self.changed:
             self.observation = observation
             self.screenshot_b64 = screenshot_b64
+            self.status = "ready"
             self.updated_at = time.time()
             self.changed.notify_all()
 
