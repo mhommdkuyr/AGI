@@ -44,7 +44,7 @@ payload = {
     "session_id": "agi-ucoa-control-smoke",
     "foreground_package": "com.android.launcher",
 }
-body = request("POST", "/v1/agent/step", payload)
+body = request("POST", "/v1/agent/control-step", payload)
 assert body.get("action") == "open_app_by_name", body
 assert (body.get("params") or {}).get("app_name") == "settings", body
 assert body.get("provider") in {"deterministic-target-gate", "ucoa-resilient-fallback", "repair"} or str(body.get("provider","")).startswith("deterministic"), body
