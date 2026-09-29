@@ -11,6 +11,13 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY"),
     )
+    mobile_provider: str = Field(default="gemini", pattern="^(gemini|ucoa)$")
+    ucoa_base_url: str = "https://ucoa-agent-brain-69bo.onrender.com"
+    ucoa_api_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("UCOA_API_TOKEN", "UCOA_AGENT_TOKEN"),
+    )
+    ucoa_timeout_s: float = Field(default=35.0, gt=1.0, le=120.0)
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     primary_model: str = "gemini-3.8-flash"
