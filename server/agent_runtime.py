@@ -7,6 +7,7 @@ from .complexity import classify_complexity
 from .config import Settings
 from .domain import HandoffReason, TaskRecord, TaskStatus
 from .gemini_cua import GeminiComputerUse
+from .gemini_mobile import GeminiMobileComputerUse
 from .guardrails import classify_handoff, looks_like_loop
 from .model_router import ModelChoice, ModelRouter
 from .usage import ledger
@@ -18,6 +19,11 @@ class AgentRuntime:
         self.settings = settings
         self.router = ModelRouter(settings)
         self.gemini_cua = GeminiComputerUse(settings.google_api_key) if settings.google_api_key else None
+        self.gemini_mobile = (
+            GeminiMobileComputerUse(settings.google_api_key, settings.primary_model)
+            if settings.google_api_key
+            else None
+        )
 
     async def run(
         self,
@@ -42,7 +48,10 @@ class AgentRuntime:
             if self.gemini_cua is None:
                 raise RuntimeError("GOOGLE_API_KEY is required for the computer-use runtime.")
 
-            enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
+            if task.target.value == "mobile":
+                if self.gemini_mobile is None or not task.mobile_session_id:
+                    raise RuntimeError("Mobile computer-use runtime requires a configured mobile session.")
+                enriched_prompt, planner_cost = await self._make_agent_prompt(task.prompt, choice)
             if planner_cost == float("inf"):
                 task.status = TaskStatus.FAILED
                 task.metering_state = "unknown"
@@ -65,15 +74,27 @@ class AgentRuntime:
                 return task
 
             remaining_budget = max(task.budget_usd - planner_cost, 0.0)
-            final_text, meta = await asyncio.to_thread(
-                self.gemini_cua.run,
-                str(task.id),
-                enriched_prompt,
-                self.settings.default_max_steps,
-                remaining_budget,
-                resume=was_waiting_human,
-                user_confirmed=user_confirmed,
-            )
+            if task.target.value == "mobile":
+                final_text, meta = await asyncio.to_thread(
+                    self.gemini_mobile.run,
+                    str(task.id),
+                    enriched_prompt,
+                    self.settings.default_max_steps,
+                    remaining_budget,
+                    mobile_session_id=task.mobile_session_id,
+                    resume=was_waiting_human,
+                    user_confirmed=user_confirmed,
+                )
+            else:
+                final_text, meta = await asyncio.to_thread(
+                    self.gemini_cua.run,
+                    str(task.id),
+                    enriched_prompt,
+                    self.settings.default_max_steps,
+                    remaining_budget,
+                    resume=was_waiting_human,
+                    user_confirmed=user_confirmed,
+                )
             task.steps = int(meta.get("turns", 0))
             executor_cost = float(meta.get("provider_cost_usd", 0.0) or 0.0)
             task.spent_usd = planner_cost + executor_cost
@@ -100,12 +121,21 @@ class AgentRuntime:
                     task.handoff_reason = handoff
                     task.error = "Human interaction is required before the task can continue."
                 else:
-                    verification = verify_browser_evidence(
-                        prompt=task.prompt,
-                        final_text=final_text,
-                        final_url=str(meta.get("final_url") or ""),
-                        final_title=str(meta.get("final_title") or ""),
-                    )
+                    if task.target.value == "mobile":
+                        from .verifier import verify_mobile_evidence
+                        verification = verify_mobile_evidence(
+                            prompt=task.prompt,
+                            final_text=final_text,
+                            package_name=str(meta.get("package_name") or ""),
+                            activity_name=str(meta.get("activity_name") or ""),
+                        )
+                    else:
+                        verification = verify_browser_evidence(
+                            prompt=task.prompt,
+                            final_text=final_text,
+                            final_url=str(meta.get("final_url") or ""),
+                            final_title=str(meta.get("final_title") or ""),
+                        )
                     if not verification.passed:
                         task.status = TaskStatus.FAILED
                         task.error = verification.reason
