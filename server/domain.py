@@ -58,7 +58,6 @@ class TaskRecord:
         self.updated_at = self.updated_at or now
 
     @classmethod
-    @classmethod
     def new(
         cls,
         user_id: str,
