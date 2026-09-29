@@ -12,7 +12,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY"),
     )
     mobile_provider: str = Field(default="auto", pattern="^(auto|gemini|ucoa)$")
-    ucoa_base_url: str = "https://ucoa-agent-brain-69bo.onrender.com"
+    ucoa_base_url: str = "https://ucoa-agent-brain-agi-control.onrender.com"
     ucoa_api_token: str | None = Field(
         default=None,
         validation_alias=AliasChoices("UCOA_API_TOKEN", "UCOA_AGENT_TOKEN"),
