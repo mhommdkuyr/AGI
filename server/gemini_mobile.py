@@ -207,126 +207,154 @@ class GeminiMobileComputerUse:
         if session is None:
             raise RuntimeError("Mobile session not found.")
         client = self._client()
-        with session.lock:
-            if resume and session.interaction_id:
-                if user_confirmed and session.pending_confirmation:
-                    pending = dict(session.pending_confirmation)
-                    result = self._execute_call(
-                        session,
-                        _PendingCall(pending["name"], pending["arguments"], pending["call_id"]),
-                    )
-                    session.pending_confirmation = None
-                    session.status = "running"
-                    session.handoff_reason = None
-                    first_result = self._result_part(session, result)
-                    interaction = client.interactions.create(
-                        model=self.model,
-                        previous_interaction_id=session.interaction_id,
-                        input=[first_result],
-                        tools=[self._tool()],
-                    )
-                else:
-                    observation, som = self._so_m_observation(session)
-                    interaction = client.interactions.create(
-                        model=self.model,
-                        previous_interaction_id=session.interaction_id,
-                        input=[
-                            {
-                                "type": "text",
-                                "text": "The user completed the required human step. Re-observe the current Android screen and continue the original task.",
-                            },
-                            {"type": "image", "data": base64.b64encode(som).decode("utf-8"), "mime_type": "image/png"},
-                        ],
-                        tools=[self._tool()],
-                    )
+
+        if resume and session.interaction_id:
+            if user_confirmed and session.pending_confirmation:
+                pending = dict(session.pending_confirmation)
+                result = self._execute_call(
+                    session,
+                    _PendingCall(
+                        pending["name"],
+                        pending["arguments"],
+                        pending["call_id"],
+                    ),
+                )
+                session.pending_confirmation = None
+                session.status = "running"
+                session.handoff_reason = None
+                interaction = client.interactions.create(
+                    model=self.model,
+                    previous_interaction_id=session.interaction_id,
+                    input=[self._result_part(session, result)],
+                    tools=[self._tool()],
+                )
             else:
                 observation, som = self._so_m_observation(session)
                 interaction = client.interactions.create(
                     model=self.model,
+                    previous_interaction_id=session.interaction_id,
                     input=[
-                        {"type": "text", "text": prompt},
-                        {"type": "text", "text": self._observation_text(observation)},
-                        {"type": "image", "data": base64.b64encode(som).decode("utf-8"), "mime_type": "image/png"},
+                        {
+                            "type": "text",
+                            "text": (
+                                "The user completed the required human step. "
+                                "Re-observe the current Android screen and continue the original task."
+                            ),
+                        },
+                        {
+                            "type": "text",
+                            "text": self._observation_text(observation),
+                        },
+                        {
+                            "type": "image",
+                            "data": base64.b64encode(som).decode("utf-8"),
+                            "mime_type": "image/png",
+                        },
                     ],
                     tools=[self._tool()],
                 )
-
-            session.interaction_id = getattr(interaction, "id", session.interaction_id)
-            total_usage, usage_known = self._usage(interaction)
-            for turn in range(max_turns):
-                status = str(getattr(interaction, "status", "") or "")
-                if status in {"failed", "cancelled", "incomplete"}:
-                    session.status = "failed"
-                    return "", self._meta(session, "failed", turn + 1, total_usage, usage_known, error=f"Gemini interaction status: {status}")
-
-                calls = self._calls(interaction)
-                if not calls:
-                    text = self._extract_text(interaction)
-                    session.status = "finished"
-                    return text, self._meta(session, "finished", turn + 1, total_usage, usage_known)
-
-                responses: list[dict[str, Any]] = []
-                for call in calls:
-                    raw_args = getattr(call, "arguments", {}) or {}
-                    args = dict(raw_args) if not isinstance(raw_args, dict) else dict(raw_args)
-                    safety = args.get("safety_decision")
-                    if isinstance(safety, dict) and safety.get("decision") == "require_confirmation" and not user_confirmed:
-                        session.pending_confirmation = {
-                            "name": str(getattr(call, "name", "")),
-                            "arguments": {k: v for k, v in args.items() if k != "safety_decision"},
-                            "call_id": str(getattr(call, "id", "") or ""),
-                        }
-                        session.status = "waiting_human"
-                        session.handoff_reason = HandoffReason.SENSITIVE_ACTION
-                        return "", self._meta(
-                            session,
-                            "waiting_human",
-                            turn + 1,
-                            total_usage,
-                            usage_known,
-                            reason=HandoffReason.SENSITIVE_ACTION.value,
-                        )
-                    result = self._execute_call(session, call)
-                    responses.append(self._result_part(session, result))
-
-                interaction = client.interactions.create(
-                    model=self.model,
-                    previous_interaction_id=session.interaction_id,
-                    input=responses,
-                    tools=[self._tool()],
-                )
-                session.interaction_id = getattr(interaction, "id", session.interaction_id)
-                usage, known = self._usage(interaction)
-                usage_known = usage_known and known
-                total_usage = Usage(
-                    total_usage.input_tokens + usage.input_tokens,
-                    total_usage.output_tokens + usage.output_tokens,
-                )
-                if budget_usd is not None:
-                    cost = estimate_token_cost(self.model, total_usage)
-                    if cost >= budget_usd:
-                        session.status = "failed"
-                        return "", self._meta(
-                            session,
-                            "failed",
-                            turn + 1,
-                            total_usage,
-                            usage_known,
-                            error="computer-use budget exhausted",
-                        )
-
-            session.status = "failed"
-            return "", self._meta(
-                session,
-                "failed",
-                max_turns,
-                total_usage,
-                usage_known,
-                error="maximum computer-use turns reached",
+        else:
+            observation, som = self._so_m_observation(session)
+            interaction = client.interactions.create(
+                model=self.model,
+                input=[
+                    {"type": "text", "text": prompt},
+                    {"type": "text", "text": self._observation_text(observation)},
+                    {
+                        "type": "image",
+                        "data": base64.b64encode(som).decode("utf-8"),
+                        "mime_type": "image/png",
+                    },
+                ],
+                tools=[self._tool()],
             )
 
-    @staticmethod
+        session.interaction_id = getattr(interaction, "id", session.interaction_id)
+        total_usage, usage_known = self._usage(interaction)
+        for turn in range(max_turns):
+            status = str(getattr(interaction, "status", "") or "")
+            if status in {"failed", "cancelled", "incomplete"}:
+                session.status = "failed"
+                return "", self._meta(
+                    session, "failed", turn + 1, total_usage, usage_known,
+                    error=f"Gemini interaction status: {status}",
+                )
+
+            calls = self._calls(interaction)
+            if not calls:
+                text = self._extract_text(interaction)
+                session.status = "finished"
+                return text, self._meta(
+                    session, "finished", turn + 1, total_usage, usage_known
+                )
+
+            responses: list[dict[str, Any]] = []
+            for call in calls:
+                raw_args = getattr(call, "arguments", {}) or {}
+                args = dict(raw_args) if not isinstance(raw_args, dict) else dict(raw_args)
+                safety = args.get("safety_decision")
+                if (
+                    isinstance(safety, dict)
+                    and safety.get("decision") == "require_confirmation"
+                    and not user_confirmed
+                ):
+                    session.pending_confirmation = {
+                        "name": str(getattr(call, "name", "")),
+                        "arguments": {k: v for k, v in args.items() if k != "safety_decision"},
+                        "call_id": str(getattr(call, "id", "") or ""),
+                    }
+                    session.status = "waiting_human"
+                    session.handoff_reason = HandoffReason.SENSITIVE_ACTION
+                    return "", self._meta(
+                        session,
+                        "waiting_human",
+                        turn + 1,
+                        total_usage,
+                        usage_known,
+                        reason=HandoffReason.SENSITIVE_ACTION.value,
+                    )
+
+                result = self._execute_call(session, call)
+                responses.append(self._result_part(session, result))
+
+            interaction = client.interactions.create(
+                model=self.model,
+                previous_interaction_id=session.interaction_id,
+                input=responses,
+                tools=[self._tool()],
+            )
+            session.interaction_id = getattr(interaction, "id", session.interaction_id)
+            usage, known = self._usage(interaction)
+            usage_known = usage_known and known
+            total_usage = Usage(
+                total_usage.input_tokens + usage.input_tokens,
+                total_usage.output_tokens + usage.output_tokens,
+            )
+            if budget_usd is not None:
+                cost = estimate_token_cost(self.model, total_usage)
+                if cost >= budget_usd:
+                    session.status = "failed"
+                    return "", self._meta(
+                        session,
+                        "failed",
+                        turn + 1,
+                        total_usage,
+                        usage_known,
+                        error="computer-use budget exhausted",
+                    )
+
+        session.status = "failed"
+        return "", self._meta(
+            session,
+            "failed",
+            max_turns,
+            total_usage,
+            usage_known,
+            error="maximum computer-use turns reached",
+        )
+
     def _meta(
+        self,
         session: MobileSession,
         status: str,
         turns: int,
@@ -342,7 +370,7 @@ class GeminiMobileComputerUse:
             "turns": turns,
             "input_tokens": usage.input_tokens,
             "output_tokens": usage.output_tokens,
-            "provider_cost_usd": estimate_token_cost("gemini-3.8-flash", usage),
+            "provider_cost_usd": estimate_token_cost(self.model, usage),
             "usage_known": usage_known,
             "reason": reason,
             "error": error,
