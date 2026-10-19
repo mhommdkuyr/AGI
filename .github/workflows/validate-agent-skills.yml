@@ -1,0 +1,34 @@
+name: Validate Agent Skills
+
+on:
+  push:
+    paths:
+      - ".agents/skills/**"
+      - "AGENTS.md"
+      - "SKILLS_AR.md"
+      - "scripts/validate_agent_skills.py"
+      - ".github/workflows/validate-agent-skills.yml"
+  pull_request:
+    paths:
+      - ".agents/skills/**"
+      - "AGENTS.md"
+      - "SKILLS_AR.md"
+      - "scripts/validate_agent_skills.py"
+      - ".github/workflows/validate-agent-skills.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate skill metadata and alias routing
+        run: python scripts/validate_agent_skills.py
