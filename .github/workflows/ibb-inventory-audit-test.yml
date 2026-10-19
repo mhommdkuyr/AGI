@@ -1,0 +1,32 @@
+name: Ibb Inventory Audit Tests
+
+on:
+  push:
+    paths:
+      - "scripts/audit_ibb_inventory.py"
+      - "tests/test_ibb_inventory_audit.py"
+      - ".github/workflows/ibb-inventory-audit-test.yml"
+  pull_request:
+    paths:
+      - "scripts/audit_ibb_inventory.py"
+      - "tests/test_ibb_inventory_audit.py"
+      - ".github/workflows/ibb-inventory-audit-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-cli-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install audit dependency
+        run: python -m pip install --disable-pip-version-check openpyxl
+      - name: Run audit CLI regression tests
+        run: python -m unittest discover -s tests -p "test_ibb_inventory_audit.py" -v
