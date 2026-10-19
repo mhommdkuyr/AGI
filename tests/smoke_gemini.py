@@ -16,11 +16,11 @@ def main() -> None:
         result, meta = agent.run(
             task_id,
             (
-                "Open https://example.com. Verify the page title and return a concise "
-                "statement containing the title and URL. Do not interact with any other site."
+                "Visit https://example.com and report its page title and URL in one short sentence. "
+                "Do not visit or interact with any other site."
             ),
-            max_turns=8,
-            budget_usd=0.10,
+            max_turns=3,
+            budget_usd=0.03,
         )
         if meta.get("status") != "finished":
             raise AssertionError(f"Smoke test did not finish: {meta}")
