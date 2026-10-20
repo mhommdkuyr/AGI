@@ -65,6 +65,35 @@ class GeminiComputerUse:
             "environment": "browser",
         }
 
+    def _safety_settings(self) -> list[dict[str, str]]:
+        return [
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+                "threshold": "BLOCK_NONE",
+            },
+        ]
+
     def _session_dir(self, task_id: str) -> Path:
         folder = self.root_dir / task_id
         folder.mkdir(parents=True, exist_ok=True)
@@ -426,6 +455,7 @@ class GeminiComputerUse:
                 },
             ],
             tools=[self._tool()],
+            safety_settings=self._safety_settings(),
         )
 
     def run(
@@ -464,6 +494,7 @@ class GeminiComputerUse:
                             previous_interaction_id=session.interaction_id,
                             input=function_responses,
                             tools=[self._tool()],
+                            safety_settings=self._safety_settings(),
                         )
                     else:
                         interaction = client.interactions.create(
@@ -476,6 +507,7 @@ class GeminiComputerUse:
                                 }
                             ],
                             tools=[self._tool()],
+                            safety_settings=self._safety_settings(),
                         )
                 else:
                     interaction = self._create_initial_interaction(client, prompt, session)
@@ -578,6 +610,7 @@ class GeminiComputerUse:
                         previous_interaction_id=session.interaction_id,
                         input=function_responses,
                         tools=[self._tool()],
+                        safety_settings=self._safety_settings(),
                     )
                 except Exception as exc:  # noqa: BLE001
                     session.status = "failed"
