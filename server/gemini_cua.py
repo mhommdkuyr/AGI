@@ -63,8 +63,36 @@ class GeminiComputerUse:
         return {
             "type": "computer_use",
             "environment": "browser",
-            "enable_prompt_injection_detection": True,
         }
+
+    def _safety_settings(self) -> list[dict[str, str]]:
+        return [
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "type": "safety_setting",
+                "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+                "threshold": "BLOCK_NONE",
+            },
+        ]
 
     def _session_dir(self, task_id: str) -> Path:
         folder = self.root_dir / task_id
@@ -427,6 +455,7 @@ class GeminiComputerUse:
                 },
             ],
             tools=[self._tool()],
+            safety_settings=self._safety_settings(),
         )
 
     def run(
@@ -445,40 +474,54 @@ class GeminiComputerUse:
             session.status = "running"
             session.handoff_reason = None
 
-            if resume and session.interaction_id:
-                if user_confirmed and session.pending_confirmation:
-                    # We must send the acknowledged action result back to the same interaction.
-                    empty_calls: list[Any] = []
-                    function_responses, waiting = self._execute_calls(
-                        session, empty_calls, confirm_pending=True
-                    )
-                    if waiting:
-                        return "", {
-                            "status": "waiting_human",
-                            "reason": session.handoff_reason.value if session.handoff_reason else HandoffReason.UNKNOWN_BLOCK.value,
-                            "turns": 0,
-                            "usage_known": False,
-                        }
-                    interaction = client.interactions.create(
-                        model=self.MODEL,
-                        previous_interaction_id=session.interaction_id,
-                        input=function_responses,
-                        tools=[self._tool()],
-                    )
-                else:
-                    interaction = client.interactions.create(
-                        model=self.MODEL,
-                        previous_interaction_id=session.interaction_id,
-                        input=[
-                            {
-                                "type": "text",
-                                "text": "The user has completed the required human step. Re-observe the current browser state and continue the original task.",
+            try:
+                if resume and session.interaction_id:
+                    if user_confirmed and session.pending_confirmation:
+                        # We must send the acknowledged action result back to the same interaction.
+                        empty_calls: list[Any] = []
+                        function_responses, waiting = self._execute_calls(
+                            session, empty_calls, confirm_pending=True
+                        )
+                        if waiting:
+                            return "", {
+                                "status": "waiting_human",
+                                "reason": session.handoff_reason.value if session.handoff_reason else HandoffReason.UNKNOWN_BLOCK.value,
+                                "turns": 0,
+                                "usage_known": False,
                             }
-                        ],
-                        tools=[self._tool()],
-                    )
-            else:
-                interaction = self._create_initial_interaction(client, prompt, session)
+                        interaction = client.interactions.create(
+                            model=self.MODEL,
+                            previous_interaction_id=session.interaction_id,
+                            input=function_responses,
+                            tools=[self._tool()],
+                            safety_settings=self._safety_settings(),
+                        )
+                    else:
+                        interaction = client.interactions.create(
+                            model=self.MODEL,
+                            previous_interaction_id=session.interaction_id,
+                            input=[
+                                {
+                                    "type": "text",
+                                    "text": "The user has completed the required human step. Re-observe the current browser state and continue the original task.",
+                                }
+                            ],
+                            tools=[self._tool()],
+                            safety_settings=self._safety_settings(),
+                        )
+                else:
+                    interaction = self._create_initial_interaction(client, prompt, session)
+            except Exception as exc:  # noqa: BLE001
+                session.status = "failed"
+                self._save_state(session)
+                return "", {
+                    "status": "failed",
+                    "error": str(exc),
+                    "turns": 0,
+                    "usage_known": False,
+                    "final_url": session.page.url,
+                    "final_title": session.page.title(),
+                }
 
             session.interaction_id = getattr(interaction, "id", session.interaction_id)
             total_usage = Usage()
@@ -561,12 +604,29 @@ class GeminiComputerUse:
                         "final_title": session.page.title(),
                     }
 
-                interaction = client.interactions.create(
-                    model=self.MODEL,
-                    previous_interaction_id=session.interaction_id,
-                    input=function_responses,
-                    tools=[self._tool()],
-                )
+                try:
+                    interaction = client.interactions.create(
+                        model=self.MODEL,
+                        previous_interaction_id=session.interaction_id,
+                        input=function_responses,
+                        tools=[self._tool()],
+                        safety_settings=self._safety_settings(),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    session.status = "failed"
+                    self._save_state(session)
+                    return "", {
+                        "status": "failed",
+                        "error": str(exc),
+                        "turns": turn + 1,
+                        "input_tokens": total_usage.input_tokens,
+                        "output_tokens": total_usage.output_tokens,
+                        "provider_cost_usd": estimate_token_cost(self.MODEL, total_usage),
+                        "usage_known": usage_known,
+                        "final_url": session.page.url,
+                        "final_title": session.page.title(),
+                    }
+
                 session.interaction_id = getattr(interaction, "id", session.interaction_id)
                 usage, known = self._usage(interaction)
                 usage_known = usage_known and known

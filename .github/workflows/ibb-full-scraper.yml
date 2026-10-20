@@ -1,0 +1,70 @@
+name: Ibb City Full Scraper (Dual Engine)
+
+on:
+  workflow_dispatch:
+    inputs:
+      grid_size:
+        description: 'Grid size for area splitting'
+        required: true
+        default: '4'
+
+jobs:
+  scrape-ibb-complete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set up Python & Playwright
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 3. Run Skill 1 - Mahanaicoach (Grid Scraper)
+        continue-on-error: true
+        run: |
+          git clone https://github.com/Mahanaicoach/google-maps-scraper-kit.git skill1
+          cd skill1
+          pip install -r requirements.txt
+          playwright install chromium
+          python3 scripts/scrape.py \
+            --keywords-file ../queries_ibb.txt \
+            --city "Ibb, Yemen" \
+            --grid ${{ github.event.inputs.grid_size || 4 }} \
+            --socials \
+            --full \
+            --output ../ibb_skill1_results.csv
+
+      - name: 4. Run Skill 2 - Gosom Engine
+        continue-on-error: true
+        run: |
+          mkdir -p gmapsdata
+          docker run --rm \
+            -v "$PWD/queries_ibb.txt:/queries.txt" \
+            -v "$PWD/gmapsdata:/gmapsdata" \
+            gosom/google-maps-scraper \
+            -input /queries.txt \
+            -results /gmapsdata/ibb_skill2_results.csv \
+            -geo "13.9667,44.1833" \
+            -radius 15000 \
+            -zoom 16 \
+            -email \
+            -exit-on-inactivity 5m
+
+      - name: 5. Run Master Multi-Engine Scraper & Merger
+        run: |
+          pip install playwright pandas requests beautifulsoup4 lxml
+          playwright install chromium
+          python3 scripts/scrape_ibb_city.py
+
+      - name: 6. Commit and Push Results
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "Ibb Scraper Bot"
+          git add ibb_city_complete_database.*
+          git commit -m "Update complete Ibb city businesses dataset" || echo "No changes"
+          git push
